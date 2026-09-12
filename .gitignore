@@ -1,0 +1,60 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Secrets and credentials ───────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# ── Database files ────────────────────────────────────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+
+# ── Alembic runtime ───────────────────────────────────────────────────────────
+# Keep versions/ tracked; exclude only generated/temp files.
+
+# ── Testing artifacts ─────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+
+# ── ML / research outputs (not raw results — those go in experiments/) ────────
+*.pkl
+*.joblib
+*.h5
+*.onnx
+__models__/
+
+# ── Editors ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.env
+__pycache__/
+.venv/
+*.pyc

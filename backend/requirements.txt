@@ -1,0 +1,39 @@
+# =============================================================================
+# Advanced Wazuh SOC/XDR Platform — Python Dependencies
+# Phase 0: Project Foundation
+# Python: 3.14.6   Generated: 2026-09-12
+# =============================================================================
+# Pin every dependency to ensure reproducibility across environments.
+# To upgrade: pip install --upgrade <package>, then update the pin here.
+
+# ── Core API ─────────────────────────────────────────────────────────────────
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+
+# ── HTTP client (used by WazuhClient and test fixtures) ──────────────────────
+httpx==0.28.1
+
+# ── Settings & configuration ──────────────────────────────────────────────────
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+
+# ── Async runtime ────────────────────────────────────────────────────────────
+anyio==4.12.1
+
+# ── Database: ORM + migrations + async driver ─────────────────────────────────
+# SQLAlchemy with asyncio extras (greenlet required for async support)
+sqlalchemy[asyncio]==2.0.52
+alembic==1.20.0
+# asyncpg: native async PostgreSQL driver (no libpq dependency)
+asyncpg==0.31.0
+
+# ── Cache ────────────────────────────────────────────────────────────────────
+redis==8.1.0
+
+# ── Structured logging ───────────────────────────────────────────────────────
+structlog==26.1.0
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+pytest==9.1.1
+pytest-asyncio==1.4.0

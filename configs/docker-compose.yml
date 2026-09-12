@@ -1,0 +1,75 @@
+# Advanced Wazuh SOC/XDR — Supplementary Services
+# Provides PostgreSQL and Redis for the platform layer only.
+# Wazuh itself runs natively on the host — do NOT add Wazuh here.
+#
+# Usage (from project root):
+#   docker compose -f configs/docker-compose.yml up -d
+#   docker compose -f configs/docker-compose.yml down
+#   docker compose -f configs/docker-compose.yml logs -f
+#
+# Credentials are read from the project-root .env file (gitignored).
+# Ensure SOC_DB_USER, SOC_DB_PASSWORD, SOC_DB_NAME are set there.
+
+services:
+
+  # ── PostgreSQL 16 ───────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: soc_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SOC_DB_USER}
+      POSTGRES_PASSWORD: ${SOC_DB_PASSWORD}
+      POSTGRES_DB: ${SOC_DB_NAME}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    ports:
+      # Bind only to localhost — do not expose to external interfaces.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - soc_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SOC_DB_USER} -d ${SOC_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Redis 7 ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: soc_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${SOC_REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    ports:
+      # Bind only to localhost.
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - soc_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${SOC_REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  soc_postgres_data:
+    driver: local
+  soc_redis_data:
+    driver: local
