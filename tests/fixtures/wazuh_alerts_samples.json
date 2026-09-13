@@ -1,0 +1,275 @@
+{
+  "rule_502_server_started": {
+    "id": "doc-502-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T08:00:00.000+0000",
+    "rule_id": 502,
+    "rule_level": 3,
+    "rule_description": "wazuh: Ossec server started.",
+    "agent_id": "000",
+    "agent_name": "wazuh.manager",
+    "raw": {
+      "@timestamp": "2026-09-12T08:00:00.000+0000",
+      "timestamp": "2026-09-12T08:00:00.000+0000",
+      "rule": {
+        "id": "502",
+        "level": 3,
+        "description": "wazuh: Ossec server started.",
+        "groups": ["ossec"],
+        "firedtimes": 1
+      },
+      "agent": {
+        "id": "000",
+        "name": "wazuh.manager"
+      },
+      "manager": {
+        "name": "wazuh.manager"
+      },
+      "decoder": {
+        "name": "ossec"
+      },
+      "location": "wazuh-monitord"
+    }
+  },
+  "rule_5710_sshd_failed_login": {
+    "id": "doc-5710-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T08:15:30.123+0000",
+    "rule_id": 5710,
+    "rule_level": 5,
+    "rule_description": "sshd: Attempt to login using a non-existent user",
+    "agent_id": "001",
+    "agent_name": "db-server-01",
+    "raw": {
+      "@timestamp": "2026-09-12T08:15:30.123+0000",
+      "timestamp": "2026-09-12T08:15:30.123+0000",
+      "rule": {
+        "id": "5710",
+        "level": 5,
+        "description": "sshd: Attempt to login using a non-existent user",
+        "groups": ["syslog", "sshd", "authentication_failed"],
+        "mitre": {
+          "id": ["T1110.001"],
+          "tactic": ["Credential Access"],
+          "technique": ["Password Guessing"]
+        },
+        "pci_dss": ["10.2.4", "10.2.5"],
+        "gdpr": ["IV_35.7.d"]
+      },
+      "agent": {
+        "id": "001",
+        "name": "db-server-01",
+        "ip": "192.168.1.105"
+      },
+      "decoder": {
+        "name": "sshd"
+      },
+      "data": {
+        "srcip": "198.51.100.45",
+        "srcport": 44120,
+        "dstuser": "invalid_user",
+        "proto": "tcp"
+      },
+      "full_log": "Failed password for invalid user invalid_user from 198.51.100.45 port 44120 ssh2"
+    }
+  },
+  "rule_5715_sshd_success_login": {
+    "id": "doc-5715-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T08:20:00.000Z",
+    "rule_id": 5715,
+    "rule_level": 3,
+    "rule_description": "sshd: authentication succeeded",
+    "agent_id": "001",
+    "agent_name": "db-server-01",
+    "raw": {
+      "@timestamp": "2026-09-12T08:20:00.000Z",
+      "rule": {
+        "id": "5715",
+        "level": 3,
+        "description": "sshd: authentication succeeded",
+        "groups": ["syslog", "sshd", "authentication_success"],
+        "mitre": {
+          "id": ["T1078"],
+          "tactic": ["Initial Access"]
+        }
+      },
+      "agent": {
+        "id": "001",
+        "name": "db-server-01"
+      },
+      "decoder": {
+        "name": "sshd"
+      },
+      "data": {
+        "srcip": "192.168.1.50",
+        "srcport": 51234,
+        "dstuser": "admin",
+        "proto": "tcp"
+      }
+    }
+  },
+  "rule_550_syscheck_modified": {
+    "id": "doc-550-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T09:00:00.000+0000",
+    "rule_id": 550,
+    "rule_level": 7,
+    "rule_description": "Integrity checksum changed.",
+    "agent_id": "002",
+    "agent_name": "web-server-02",
+    "raw": {
+      "@timestamp": "2026-09-12T09:00:00.000+0000",
+      "rule": {
+        "id": "550",
+        "level": 7,
+        "description": "Integrity checksum changed.",
+        "groups": ["syscheck", "fim"],
+        "pci_dss": ["11.5"]
+      },
+      "agent": {
+        "id": "002",
+        "name": "web-server-02"
+      },
+      "decoder": {
+        "name": "syscheck"
+      },
+      "syscheck": {
+        "path": "/etc/shadow",
+        "size_before": "1240",
+        "size_after": "1310",
+        "perm_before": "rw-r-----",
+        "perm_after": "rw-r-----",
+        "uname_before": "root",
+        "uname_after": "root",
+        "md5_before": "9e107d9d372bb6826bd81d3542a419d6",
+        "md5_after": "e4d909c290d0fb1ca068ffaddf22cbd0",
+        "sha256_before": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "sha256_after": "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2134f1ec2d6a71d78292",
+        "event": "modified"
+      }
+    }
+  },
+  "rule_554_syscheck_added": {
+    "id": "doc-554-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T09:05:00.000+0000",
+    "rule_id": 554,
+    "rule_level": 5,
+    "rule_description": "File added to the system.",
+    "agent_id": "002",
+    "agent_name": "web-server-02",
+    "raw": {
+      "@timestamp": "2026-09-12T09:05:00.000+0000",
+      "rule": {
+        "id": "554",
+        "level": 5,
+        "description": "File added to the system.",
+        "groups": ["syscheck", "fim"]
+      },
+      "agent": {
+        "id": "002",
+        "name": "web-server-02"
+      },
+      "decoder": {
+        "name": "syscheck"
+      },
+      "syscheck": {
+        "path": "/tmp/malicious.sh",
+        "size_after": "2048",
+        "md5_after": "c4ca4238a0b923820dcc509a6f75849b",
+        "sha256_after": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "event": "added"
+      }
+    }
+  },
+  "sca_policy_check": {
+    "id": "doc-sca-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T09:10:00.000+0000",
+    "rule_id": 19000,
+    "rule_level": 7,
+    "rule_description": "SCA: CIS benchmark check failed",
+    "agent_id": "001",
+    "agent_name": "db-server-01",
+    "raw": {
+      "@timestamp": "2026-09-12T09:10:00.000+0000",
+      "rule": {
+        "id": "19000",
+        "level": 7,
+        "description": "SCA: CIS benchmark check failed",
+        "groups": ["sca", "cis"]
+      },
+      "agent": {
+        "id": "001",
+        "name": "db-server-01"
+      },
+      "decoder": {
+        "name": "sca"
+      },
+      "data": {
+        "sca": {
+          "type": "check",
+          "scan_id": "12345",
+          "policy": "CIS Ubuntu Linux 22.04 LTS Benchmark",
+          "check": {
+            "id": 5001,
+            "title": "Ensure permissions on /etc/shadow are configured",
+            "result": "failed",
+            "rationale": "The /etc/shadow file contains user password hashes."
+          }
+        }
+      }
+    }
+  },
+  "malformed_invalid_ip": {
+    "id": "doc-err-ip-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T09:15:00.000Z",
+    "rule_id": 5710,
+    "rule_level": 5,
+    "raw": {
+      "timestamp": "2026-09-12T09:15:00.000Z",
+      "rule": {"id": "5710", "level": 5},
+      "data": {
+        "srcip": "999.999.999.999",
+        "srcport": 22
+      }
+    }
+  },
+  "malformed_invalid_port": {
+    "id": "doc-err-port-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T09:15:00.000Z",
+    "rule_id": 5710,
+    "rule_level": 5,
+    "raw": {
+      "timestamp": "2026-09-12T09:15:00.000Z",
+      "rule": {"id": "5710", "level": 5},
+      "data": {
+        "srcip": "192.168.1.1",
+        "srcport": 99999
+      }
+    }
+  },
+  "malformed_invalid_timestamp": {
+    "id": "doc-err-ts-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "not-a-valid-timestamp",
+    "rule_id": 5710,
+    "rule_level": 5,
+    "raw": {
+      "timestamp": "not-a-valid-timestamp",
+      "rule": {"id": "5710", "level": 5}
+    }
+  },
+  "malformed_missing_rule_id": {
+    "id": "doc-err-rule-001",
+    "index": "wazuh-alerts-4.x-2026.09.12",
+    "timestamp": "2026-09-12T09:20:00.000Z",
+    "raw": {
+      "timestamp": "2026-09-12T09:20:00.000Z",
+      "rule": {"level": 5}
+    }
+  }
+}

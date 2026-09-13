@@ -15,19 +15,32 @@ from datetime import datetime
 from typing import Any
 
 import structlog
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
+from .database import get_db
 from .exceptions import IntegrationError
 from .logging_config import configure_logging
+from .models.normalized_event import NormalizedEvent
+from .models.raw_alert import RawAlert
 from .schemas.wazuh import (
     AlertListResponse,
+    RawAlertItem,
     WazuhApiInfo,
     WazuhManagerInfo,
     WazuhManagerStatus,
 )
 from .wazuh_client import WazuhClient, WazuhIndexerClient
+from normalizer.exceptions import NormalizationError
+from normalizer.schemas import (
+    NormalizedEventListResponse,
+    NormalizedEventSchema,
+)
+from normalizer.service import NormalizationService
+from normalizer.wazuh_normalizer import EventNormalizer, _map_severity_label
 
 # ---------------------------------------------------------------------------
 # Bootstrap — configure logging before anything else so that all subsequent
@@ -83,6 +96,15 @@ async def integration_error_handler(request: Request, exc: IntegrationError) -> 
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.message, "error_type": type(exc).__name__},
+    )
+
+
+@app.exception_handler(NormalizationError)
+async def normalization_error_handler(request: Request, exc: NormalizationError) -> JSONResponse:
+    log.warning("normalization_error_caught", error_type=type(exc).__name__, message=str(exc), path=request.url.path)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": str(exc), "error_type": type(exc).__name__},
     )
 
 
@@ -232,4 +254,165 @@ async def get_alerts(
         raise HTTPException(
             status_code=502,
             detail="Unexpected failure querying Wazuh Indexer",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 Normalization Endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post(
+    "/normalizer/normalize",
+    tags=["Normalizer"],
+    summary="Normalize a raw alert",
+    response_model=NormalizedEventSchema,
+    response_description="Normalized and ECS-mapped event schema",
+)
+async def normalize_alert_endpoint(
+    alert: RawAlertItem,
+    persist: bool = Query(default=True, description="Whether to persist raw alert and normalized event in database"),
+    db: AsyncSession = Depends(get_db),
+) -> NormalizedEventSchema:
+    """Normalize a Wazuh raw alert into the standard ECS-aligned NormalizedEvent schema.
+
+    If ``persist=True`` (default), persists the RawAlert and NormalizedEvent in PostgreSQL
+    with atomic linkage. If ``persist=False``, performs in-memory normalization without DB writes.
+    """
+    log.info("normalize_alert_requested", alert_id=alert.id, index=alert.index, persist=persist)
+    try:
+        if persist:
+            service = NormalizationService()
+            return await service.process_and_store(db, alert)
+        else:
+            normalizer = EventNormalizer()
+            return normalizer.normalize_alert(alert)
+    except NormalizationError:
+        raise
+    except Exception as exc:
+        log.error("normalize_alert_unexpected_error", error=str(exc), alert_id=alert.id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to normalize alert: {exc}",
+        ) from exc
+
+
+@app.get(
+    "/events/normalized",
+    tags=["Normalizer"],
+    summary="List normalized events",
+    response_model=NormalizedEventListResponse,
+    response_description="Paginated normalized events from PostgreSQL",
+)
+async def get_normalized_events(
+    limit: int = Query(default=20, ge=1, le=500, description="Max events to return (1-500)"),
+    offset: int = Query(default=0, ge=0, description="Offset for pagination"),
+    category: str | None = Query(default=None, description="Filter by event_category"),
+    event_type: str | None = Query(default=None, description="Filter by event_type"),
+    min_severity: int | None = Query(default=None, ge=1, le=16, description="Filter by minimum severity (1-16)"),
+    rule_id: str | None = Query(default=None, description="Filter by rule ID"),
+    agent_id: str | None = Query(default=None, description="Filter by agent ID"),
+    db: AsyncSession = Depends(get_db),
+) -> NormalizedEventListResponse:
+    """Query normalized events stored in PostgreSQL with filtering and pagination."""
+    log.info(
+        "get_normalized_events_requested",
+        limit=limit,
+        offset=offset,
+        category=category,
+        event_type=event_type,
+        min_severity=min_severity,
+        rule_id=rule_id,
+        agent_id=agent_id,
+    )
+    try:
+        stmt = (
+            select(NormalizedEvent, RawAlert.raw_json)
+            .join(RawAlert, NormalizedEvent.raw_alert_id == RawAlert.id, isouter=True)
+        )
+        count_stmt = select(func.count(NormalizedEvent.id))
+
+        if category:
+            stmt = stmt.where(NormalizedEvent.event_category == category)
+            count_stmt = count_stmt.where(NormalizedEvent.event_category == category)
+        if event_type:
+            stmt = stmt.where(NormalizedEvent.event_type == event_type)
+            count_stmt = count_stmt.where(NormalizedEvent.event_type == event_type)
+        if min_severity is not None:
+            stmt = stmt.where(NormalizedEvent.severity >= min_severity)
+            count_stmt = count_stmt.where(NormalizedEvent.severity >= min_severity)
+        if rule_id:
+            stmt = stmt.where(NormalizedEvent.rule_id == rule_id)
+            count_stmt = count_stmt.where(NormalizedEvent.rule_id == rule_id)
+        if agent_id:
+            stmt = stmt.where(NormalizedEvent.agent_id == agent_id)
+            count_stmt = count_stmt.where(NormalizedEvent.agent_id == agent_id)
+
+        total_res = await db.execute(count_stmt)
+        total = total_res.scalar() or 0
+
+        stmt = stmt.order_by(NormalizedEvent.event_timestamp.desc()).limit(limit).offset(offset)
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        events: list[NormalizedEventSchema] = []
+        for event, raw_json in rows:
+            events.append(
+                NormalizedEventSchema(
+                    event_id=event.id,
+                    raw_alert_id=event.raw_alert_id,
+                    wazuh_index_id=event.wazuh_index_id or "",
+                    wazuh_index=event.wazuh_index or "",
+                    normalization_version=event.normalization_version or "2.0.0",
+                    normalized_at=event.created_at,
+                    event_timestamp=event.event_timestamp,
+                    ingestion_timestamp=event.created_at,
+                    source_type=event.source_type,
+                    decoder_name=event.decoder_name,
+                    event_category=event.event_category or "system",
+                    event_type=event.event_type,
+                    severity=event.severity,
+                    severity_label=_map_severity_label(event.severity),
+                    rule_id=event.rule_id or "",
+                    rule_description=event.rule_description or "",
+                    rule_groups=[],
+                    agent_id=event.agent_id,
+                    agent_name=event.agent_name,
+                    hostname=event.hostname,
+                    src_ip=event.src_ip,
+                    dst_ip=event.dst_ip,
+                    src_port=event.src_port,
+                    dst_port=event.dst_port,
+                    network_protocol=event.network_protocol,
+                    user=event.user,
+                    auth_action=event.auth_action,
+                    auth_result=event.auth_result,
+                    domain=event.domain,
+                    url=event.url,
+                    process_name=event.process_name,
+                    process_pid=event.process_pid,
+                    process_command_line=event.process_command_line,
+                    file_path=event.file_path,
+                    file_hash_md5=event.file_hash_md5,
+                    file_hash_sha256=event.file_hash_sha256,
+                    mitre_technique_ids=event.mitre_technique_ids or [],
+                    mitre_tactic_ids=event.mitre_tactic_ids or [],
+                    compliance_frameworks={},
+                    extra_fields=event.extra_fields or {},
+                    raw_payload=raw_json or {},
+                )
+            )
+
+        return NormalizedEventListResponse(
+            total=total,
+            count=len(events),
+            limit=limit,
+            offset=offset,
+            events=events,
+        )
+    except Exception as exc:
+        log.error("get_normalized_events_error", error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve normalized events: {exc}",
         ) from exc

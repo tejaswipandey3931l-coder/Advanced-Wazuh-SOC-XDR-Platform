@@ -57,6 +57,21 @@ class NormalizedEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
         comment="e.g. wazuh_agent, zeek, suricata, syslog",
     )
+    normalization_version: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        server_default="2.0.0",
+        comment="Schema normalization version (e.g. 2.0.0)",
+    )
+    decoder_name: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, comment="Wazuh decoder name"
+    )
+    wazuh_index_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, index=True, comment="Source OpenSearch document _id"
+    )
+    wazuh_index: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, comment="Source OpenSearch index name"
+    )
 
     # ── Network context ───────────────────────────────────────────────────────
     src_ip: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True)
@@ -71,6 +86,13 @@ class NormalizedEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         String(255), nullable=True, index=True
     )
     agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    agent_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    auth_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    auth_result: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    # ── Web & Resource Context ───────────────────────────────────────────────
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── Process context ────────────────────────────────────────────────────────
     process_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -83,6 +105,9 @@ class NormalizedEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     file_hash_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # ── Event classification ──────────────────────────────────────────────────
+    event_category: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, comment="High-level category"
+    )
     event_type: Mapped[str] = mapped_column(
         String(128), nullable=False, index=True
     )
