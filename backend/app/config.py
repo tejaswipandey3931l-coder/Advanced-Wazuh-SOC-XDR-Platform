@@ -40,7 +40,10 @@ class Settings(BaseSettings):
     wazuh_api_url: str = "https://127.0.0.1:55000"
     wazuh_api_user: str
     wazuh_api_password: str
-    wazuh_verify_ssl: bool = False
+    wazuh_verify_ssl: bool = True
+    wazuh_ca_cert: str | None = None
+    wazuh_api_timeout: float = 10.0
+    wazuh_api_max_retries: int = 3
 
     # ── Database (PostgreSQL via asyncpg) ────────────────────────────────────
     soc_db_url: str  # e.g. postgresql+asyncpg://user:pass@host:5432/dbname
@@ -55,17 +58,20 @@ class Settings(BaseSettings):
     opensearch_url: str = "https://127.0.0.1:9200"
     opensearch_user: str = ""
     opensearch_password: str = ""
-    opensearch_verify_ssl: bool = False
+    opensearch_verify_ssl: bool = True
+    opensearch_ca_cert: str | None = None
+    opensearch_timeout: float = 15.0
+    opensearch_max_retries: int = 3
 
     @field_validator("wazuh_api_url", "opensearch_url", mode="before")
     @classmethod
     def strip_trailing_slash(cls, v: str) -> str:
-        return v.rstrip("/")
+        return v.rstrip("/") if isinstance(v, str) else v
 
     @field_validator("soc_db_url", mode="before")
     @classmethod
     def validate_db_url(cls, v: str) -> str:
-        if not v.startswith("postgresql"):
+        if isinstance(v, str) and not v.startswith("postgresql"):
             raise ValueError("SOC_DB_URL must be a PostgreSQL connection string.")
         return v
 
