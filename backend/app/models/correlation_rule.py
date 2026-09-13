@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import enum
 
-from sqlalchemy import Boolean, Enum, Index, Integer, String, Text
+from sqlalchemy import Boolean, Enum, Float, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,6 +44,11 @@ class CorrelationRule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False, index=True
     )
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), default="medium", nullable=False)
+    base_confidence: Mapped[float] = mapped_column(Float, default=0.7, nullable=False)
+    mitre_technique_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    mitre_tactic_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # ── Rule configuration ────────────────────────────────────────────────────
     rule_type: Mapped[RuleType] = mapped_column(

@@ -10,6 +10,7 @@ from .audit_log import AuditLog
 from .base import Base
 from .correlation_rule import CorrelationRule
 from .incident import Incident
+from .incident_event import IncidentEvent
 from .normalized_event import NormalizedEvent
 from .raw_alert import RawAlert
 from .threat_intel_result import ThreatIntelResult
@@ -19,6 +20,7 @@ __all__ = [
     "RawAlert",
     "NormalizedEvent",
     "Incident",
+    "IncidentEvent",
     "CorrelationRule",
     "ThreatIntelResult",
     "AttackChain",

@@ -1,0 +1,115 @@
+{
+  "ssh_bruteforce_events": [
+    {
+      "event_type": "authentication_failed",
+      "event_category": "authentication",
+      "severity": 5,
+      "rule_id": "5710",
+      "source_type": "wazuh_agent",
+      "src_ip": "198.51.100.45",
+      "dst_ip": "10.0.0.1",
+      "src_port": 49152,
+      "dst_port": 22,
+      "user": "root",
+      "auth_action": "ssh_login",
+      "auth_result": "failed",
+      "timestamp_offset_seconds": 0
+    },
+    {
+      "event_type": "authentication_failed",
+      "event_category": "authentication",
+      "severity": 5,
+      "rule_id": "5710",
+      "source_type": "wazuh_agent",
+      "src_ip": "198.51.100.45",
+      "dst_ip": "10.0.0.1",
+      "src_port": 49153,
+      "dst_port": 22,
+      "user": "admin",
+      "auth_action": "ssh_login",
+      "auth_result": "failed",
+      "timestamp_offset_seconds": 10
+    },
+    {
+      "event_type": "authentication_failed",
+      "event_category": "authentication",
+      "severity": 5,
+      "rule_id": "5710",
+      "source_type": "wazuh_agent",
+      "src_ip": "198.51.100.45",
+      "dst_ip": "10.0.0.1",
+      "src_port": 49154,
+      "dst_port": 22,
+      "user": "user1",
+      "auth_action": "ssh_login",
+      "auth_result": "failed",
+      "timestamp_offset_seconds": 25
+    },
+    {
+      "event_type": "authentication_failed",
+      "event_category": "authentication",
+      "severity": 5,
+      "rule_id": "5710",
+      "source_type": "wazuh_agent",
+      "src_ip": "198.51.100.45",
+      "dst_ip": "10.0.0.1",
+      "src_port": 49155,
+      "dst_port": 22,
+      "user": "test",
+      "auth_action": "ssh_login",
+      "auth_result": "failed",
+      "timestamp_offset_seconds": 40
+    },
+    {
+      "event_type": "authentication_failed",
+      "event_category": "authentication",
+      "severity": 5,
+      "rule_id": "5710",
+      "source_type": "wazuh_agent",
+      "src_ip": "198.51.100.45",
+      "dst_ip": "10.0.0.1",
+      "src_port": 49156,
+      "dst_port": 22,
+      "user": "operator",
+      "auth_action": "ssh_login",
+      "auth_result": "failed",
+      "timestamp_offset_seconds": 60
+    }
+  ],
+  "priv_esc_sequence_events": [
+    {
+      "event_type": "authentication_failed",
+      "event_category": "authentication",
+      "severity": 5,
+      "rule_id": "5710",
+      "user": "alice",
+      "src_ip": "10.0.0.50",
+      "auth_result": "failed",
+      "timestamp_offset_seconds": 0
+    },
+    {
+      "event_type": "privilege_escalation",
+      "event_category": "privilege_escalation",
+      "severity": 8,
+      "rule_id": "5402",
+      "user": "alice",
+      "src_ip": "10.0.0.50",
+      "process_name": "sudo",
+      "process_command_line": "sudo -i",
+      "auth_result": "success",
+      "timestamp_offset_seconds": 120
+    }
+  ],
+  "port_scan_events": [
+    {"src_ip": "203.0.113.10", "dst_port": 21, "event_category": "network", "timestamp_offset_seconds": 0},
+    {"src_ip": "203.0.113.10", "dst_port": 22, "event_category": "network", "timestamp_offset_seconds": 2},
+    {"src_ip": "203.0.113.10", "dst_port": 23, "event_category": "network", "timestamp_offset_seconds": 4},
+    {"src_ip": "203.0.113.10", "dst_port": 80, "event_category": "network", "timestamp_offset_seconds": 6},
+    {"src_ip": "203.0.113.10", "dst_port": 443, "event_category": "network", "timestamp_offset_seconds": 8},
+    {"src_ip": "203.0.113.10", "dst_port": 8080, "event_category": "network", "timestamp_offset_seconds": 10},
+    {"src_ip": "203.0.113.10", "dst_port": 8443, "event_category": "network", "timestamp_offset_seconds": 12},
+    {"src_ip": "203.0.113.10", "dst_port": 3306, "event_category": "network", "timestamp_offset_seconds": 14},
+    {"src_ip": "203.0.113.10", "dst_port": 5432, "event_category": "network", "timestamp_offset_seconds": 16},
+    {"src_ip": "203.0.113.10", "dst_port": 6379, "event_category": "network", "timestamp_offset_seconds": 18}
+  ]
+}

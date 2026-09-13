@@ -15,19 +15,29 @@ import enum
 import uuid
 from datetime import datetime
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import (
     DateTime,
     Enum,
     Float,
+    ForeignKey,
     Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from .attack_chain import AttackChain
+    from .correlation_rule import CorrelationRule
+    from .incident_event import IncidentEvent
+    from .normalized_event import NormalizedEvent
 
 
 class IncidentStatus(str, enum.Enum):
@@ -89,6 +99,16 @@ class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     alert_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
+    # ── Correlation Context (Phase 3) ─────────────────────────────────────────
+    correlation_rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("correlation_rules.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    dedup_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
     # ── MITRE context ─────────────────────────────────────────────────────────
     # Aggregated from member events by the correlation engine.
     mitre_techniques: Mapped[list | None] = mapped_column(JSONB, nullable=True)
@@ -104,14 +124,29 @@ class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     entity_context: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # ── Relationships ─────────────────────────────────────────────────────────
-    attack_chain: Mapped["AttackChain | None"] = relationship(  # noqa: F821
+    attack_chain: Mapped["AttackChain | None"] = relationship(
         "AttackChain", back_populates="incident", uselist=False
+    )
+    correlation_rule: Mapped["CorrelationRule | None"] = relationship(
+        "CorrelationRule"
+    )
+    incident_events: Mapped[list["IncidentEvent"]] = relationship(
+        "IncidentEvent", back_populates="incident", cascade="all, delete-orphan"
+    )
+    events: Mapped[list["NormalizedEvent"]] = relationship(
+        "NormalizedEvent", secondary="incident_events", viewonly=True
     )
 
     # ── Composite indexes ──────────────────────────────────────────────────────
     __table_args__ = (
         Index("ix_incidents_status_severity", "status", "severity"),
         Index("ix_incidents_first_seen", "first_seen"),
+        Index(
+            "uq_active_incident_dedup_key",
+            "dedup_key",
+            unique=True,
+            postgresql_where=text("status IN ('open', 'investigating')"),
+        ),
     )
 
     def __repr__(self) -> str:

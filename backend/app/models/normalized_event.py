@@ -146,6 +146,12 @@ class NormalizedEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     threat_intel_results: Mapped[list["ThreatIntelResult"]] = relationship(  # noqa: F821
         "ThreatIntelResult", back_populates="normalized_event", cascade="all, delete-orphan"
     )
+    incident_events: Mapped[list["IncidentEvent"]] = relationship(  # noqa: F821
+        "IncidentEvent", back_populates="normalized_event"
+    )
+    incidents: Mapped[list["Incident"]] = relationship(  # noqa: F821
+        "Incident", secondary="incident_events", viewonly=True
+    )
 
     # ── Composite indexes ─────────────────────────────────────────────────────
     __table_args__ = (

@@ -11,21 +11,39 @@ Startup order:
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from uuid import UUID
+
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .database import get_db
 from .exceptions import IntegrationError
 from .logging_config import configure_logging
+from .models.correlation_rule import CorrelationRule, RuleType
+from .models.incident import Incident, IncidentSeverity, IncidentStatus
+from .models.incident_event import IncidentEvent
 from .models.normalized_event import NormalizedEvent
 from .models.raw_alert import RawAlert
+from .schemas.incident import (
+    CorrelationRuleCreateRequest,
+    CorrelationRuleResponse,
+    CorrelationRulesListResponse,
+    EvaluateEventRequest,
+    EvaluateEventResponse,
+    IncidentDetailResponse,
+    IncidentEventItem,
+    IncidentEventsListResponse,
+    IncidentListResponse,
+    IncidentResponse,
+)
 from .schemas.wazuh import (
     AlertListResponse,
     RawAlertItem,
@@ -34,6 +52,11 @@ from .schemas.wazuh import (
     WazuhManagerStatus,
 )
 from .wazuh_client import WazuhClient, WazuhIndexerClient
+from correlation.engine import CorrelationEngine
+from correlation.models import CorrelationRuleDefinition
+from correlation.rules import RuleRegistry
+from correlation.service import CorrelationService
+from correlation.state import InMemoryWindowStateStore, RedisWindowStateStore, WindowStateStore
 from normalizer.exceptions import NormalizationError
 from normalizer.schemas import (
     NormalizedEventListResponse,
@@ -51,6 +74,17 @@ configure_logging(debug=_settings.app_debug)
 
 log = structlog.get_logger(__name__)
 
+# ── Correlation Engine & Service Setup ────────────────────────────────────────
+_rule_registry = RuleRegistry()
+_rule_registry.load_defaults()
+_window_state_store: WindowStateStore = RedisWindowStateStore(redis_url=_settings.soc_redis_url)
+_correlation_engine = CorrelationEngine(registry=_rule_registry, state_store=_window_state_store)
+_correlation_service = CorrelationService(engine=_correlation_engine)
+
+
+def get_correlation_service() -> CorrelationService:
+    return _correlation_service
+
 
 # ---------------------------------------------------------------------------
 # Lifespan context manager (FastAPI 0.93+ pattern).
@@ -64,8 +98,13 @@ async def lifespan(app: FastAPI):
         debug=_settings.app_debug,
         wazuh_api_url=_settings.wazuh_api_url,
         opensearch_url=_settings.opensearch_url,
+        redis_url=_settings.soc_redis_url,
     )
+    if isinstance(_window_state_store, RedisWindowStateStore):
+        await _window_state_store.check_health()
     yield
+    if isinstance(_window_state_store, RedisWindowStateStore):
+        await _window_state_store.close()
     log.info("application_shutdown")
 
 
@@ -416,3 +455,304 @@ async def get_normalized_events(
             status_code=500,
             detail=f"Failed to retrieve normalized events: {exc}",
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Correlation & Incident Routes
+# ---------------------------------------------------------------------------
+
+
+def _serialize_incident(inc: Incident) -> IncidentResponse:
+    return IncidentResponse(
+        id=inc.id,
+        title=inc.title,
+        description=inc.description,
+        status=inc.status,
+        severity=inc.severity,
+        confidence=inc.confidence,
+        first_seen=inc.first_seen,
+        last_seen=inc.last_seen,
+        alert_count=inc.alert_count,
+        dedup_key=inc.dedup_key,
+        correlation_rule_id=inc.correlation_rule_id,
+        entity_context=inc.entity_context,
+        mitre_techniques=inc.mitre_techniques,
+        mitre_tactics=inc.mitre_tactics,
+        created_at=inc.created_at,
+        updated_at=inc.updated_at,
+    )
+
+
+def _serialize_incident_event(evt: IncidentEvent) -> IncidentEventItem:
+    return IncidentEventItem(
+        id=evt.id,
+        incident_id=evt.incident_id,
+        normalized_event_id=evt.normalized_event_id,
+        correlation_rule_id=evt.correlation_rule_id,
+        match_role=evt.match_role,
+        confidence=evt.confidence,
+        added_at=evt.added_at,
+    )
+
+
+@app.post(
+    "/correlation/evaluate",
+    tags=["Correlation"],
+    summary="Evaluate a normalized event for correlation",
+    response_model=EvaluateEventResponse,
+)
+async def evaluate_event(
+    body: EvaluateEventRequest,
+    db: AsyncSession = Depends(get_db),
+    service: CorrelationService = Depends(get_correlation_service),
+) -> EvaluateEventResponse:
+    """
+    Ingests a NormalizedEvent into the sliding-window correlation engine.
+    Returns any Incidents created or aggregated by rule matches.
+    """
+    stmt = select(NormalizedEvent).where(NormalizedEvent.id == body.event_id)
+    result = await db.execute(stmt)
+    event = result.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=404, detail=f"NormalizedEvent {body.event_id} not found")
+
+    incidents = await service.process_normalized_event(db, event)
+    serialized_incidents = [_serialize_incident(inc) for inc in incidents]
+    await db.commit()
+
+    return EvaluateEventResponse(
+        evaluated=True,
+        event_id=body.event_id,
+        matches_count=len(incidents),
+        incidents=serialized_incidents,
+    )
+
+
+@app.get(
+    "/incidents",
+    tags=["Incidents"],
+    summary="List correlated security incidents",
+    response_model=IncidentListResponse,
+)
+async def list_incidents(
+    status: IncidentStatus | None = Query(None, description="Filter by status"),
+    severity: IncidentSeverity | None = Query(None, description="Filter by severity"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> IncidentListResponse:
+    """List correlated security incidents with filtering and pagination."""
+    stmt = select(Incident)
+    count_stmt = select(func.count(Incident.id))
+    if status:
+        stmt = stmt.where(Incident.status == status)
+        count_stmt = count_stmt.where(Incident.status == status)
+    if severity:
+        stmt = stmt.where(Incident.severity == severity)
+        count_stmt = count_stmt.where(Incident.severity == severity)
+
+    total_res = await db.execute(count_stmt)
+    total = total_res.scalar() or 0
+
+    stmt = stmt.order_by(Incident.last_seen.desc()).limit(limit).offset(offset)
+    result = await db.execute(stmt)
+    incidents = result.scalars().all()
+
+    return IncidentListResponse(
+        items=[_serialize_incident(inc) for inc in incidents],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get(
+    "/incidents/{id}",
+    tags=["Incidents"],
+    summary="Get incident details by ID",
+    response_model=IncidentDetailResponse,
+)
+async def get_incident(
+    id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> IncidentDetailResponse:
+    """Retrieve full incident details including member evidence events."""
+    stmt = select(Incident).where(Incident.id == id)
+    result = await db.execute(stmt)
+    inc = result.scalar_one_or_none()
+    if not inc:
+        raise HTTPException(status_code=404, detail=f"Incident {id} not found")
+
+    events_stmt = (
+        select(IncidentEvent)
+        .where(IncidentEvent.incident_id == id)
+        .order_by(IncidentEvent.added_at.asc())
+    )
+    events_res = await db.execute(events_stmt)
+    events = events_res.scalars().all()
+
+    base_resp = _serialize_incident(inc)
+    return IncidentDetailResponse(
+        **base_resp.model_dump(),
+        events=[_serialize_incident_event(e) for e in events],
+    )
+
+
+@app.get(
+    "/incidents/{id}/events",
+    tags=["Incidents"],
+    summary="Get events belonging to an incident",
+    response_model=IncidentEventsListResponse,
+)
+async def get_incident_events(
+    id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> IncidentEventsListResponse:
+    """Retrieve all normalized events associated with an incident."""
+    stmt = select(Incident.id).where(Incident.id == id)
+    inc_id = (await db.execute(stmt)).scalar_one_or_none()
+    if not inc_id:
+        raise HTTPException(status_code=404, detail=f"Incident {id} not found")
+
+    events_stmt = (
+        select(IncidentEvent)
+        .where(IncidentEvent.incident_id == id)
+        .order_by(IncidentEvent.added_at.asc())
+    )
+    events = (await db.execute(events_stmt)).scalars().all()
+    return IncidentEventsListResponse(
+        items=[_serialize_incident_event(e) for e in events],
+        total=len(events),
+    )
+
+
+@app.get(
+    "/correlation/rules",
+    tags=["Correlation"],
+    summary="List correlation rules",
+    response_model=CorrelationRulesListResponse,
+)
+async def list_correlation_rules(
+    db: AsyncSession = Depends(get_db),
+) -> CorrelationRulesListResponse:
+    """List all correlation rules configured in the platform."""
+    # Ensure default rules exist in DB
+    for default_rule in _rule_registry.get_active_rules():
+        stmt = pg_insert(CorrelationRule).values(
+            id=default_rule.id,
+            name=default_rule.name,
+            description=default_rule.description,
+            rule_type=default_rule.rule_type,
+            severity=default_rule.severity.value,
+            base_confidence=default_rule.base_confidence,
+            time_window_seconds=default_rule.time_window_seconds,
+            min_event_count=default_rule.min_event_count,
+            entity_field=default_rule.entity_field,
+            conditions=default_rule.conditions,
+            is_active=default_rule.is_active,
+            priority=default_rule.priority,
+            version=default_rule.version,
+            mitre_technique_id=default_rule.mitre_technique_id,
+            mitre_tactic_id=default_rule.mitre_tactic_id,
+        ).on_conflict_do_nothing()
+        await db.execute(stmt)
+    await db.commit()
+
+    stmt = select(CorrelationRule).order_by(CorrelationRule.priority.asc(), CorrelationRule.id.asc())
+    db_rules = (await db.execute(stmt)).scalars().all()
+
+    items: list[CorrelationRuleResponse] = []
+    for r in db_rules:
+        items.append(
+            CorrelationRuleResponse(
+                id=r.id,
+                name=r.name,
+                description=r.description,
+                rule_type=r.rule_type,
+                severity=r.severity,
+                base_confidence=r.base_confidence,
+                time_window_seconds=r.time_window_seconds,
+                min_event_count=r.min_event_count,
+                entity_field=r.entity_field,
+                conditions=r.conditions,
+                is_active=r.is_active,
+                priority=r.priority,
+                version=r.version,
+                mitre_technique_id=r.mitre_technique_id,
+                mitre_tactic_id=r.mitre_tactic_id,
+                created_at=r.created_at,
+                updated_at=r.updated_at,
+            )
+        )
+    return CorrelationRulesListResponse(items=items, total=len(items))
+
+
+@app.post(
+    "/correlation/rules",
+    tags=["Correlation"],
+    summary="Create and register a new correlation rule",
+    response_model=CorrelationRuleResponse,
+)
+async def create_correlation_rule(
+    body: CorrelationRuleCreateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> CorrelationRuleResponse:
+    """Create a new correlation rule, persist to database, and register into engine."""
+    rule_def = CorrelationRuleDefinition(
+        name=body.name,
+        description=body.description,
+        rule_type=body.rule_type,
+        severity=IncidentSeverity(body.severity) if hasattr(IncidentSeverity, body.severity.upper()) else IncidentSeverity.MEDIUM,
+        base_confidence=body.base_confidence,
+        time_window_seconds=body.time_window_seconds,
+        min_event_count=body.min_event_count,
+        entity_field=body.entity_field,
+        conditions=body.conditions,
+        is_active=body.is_active,
+        priority=body.priority,
+        mitre_technique_id=body.mitre_technique_id,
+        mitre_tactic_id=body.mitre_tactic_id,
+    )
+
+    db_rule = CorrelationRule(
+        id=rule_def.id,
+        name=rule_def.name,
+        description=rule_def.description,
+        rule_type=rule_def.rule_type,
+        severity=rule_def.severity.value,
+        base_confidence=rule_def.base_confidence,
+        time_window_seconds=rule_def.time_window_seconds,
+        min_event_count=rule_def.min_event_count,
+        entity_field=rule_def.entity_field,
+        conditions=rule_def.conditions,
+        is_active=rule_def.is_active,
+        priority=rule_def.priority,
+        version=rule_def.version,
+        mitre_technique_id=rule_def.mitre_technique_id,
+        mitre_tactic_id=rule_def.mitre_tactic_id,
+    )
+    db.add(db_rule)
+    await db.commit()
+    await db.refresh(db_rule)
+
+    _rule_registry.register_rule(rule_def)
+
+    return CorrelationRuleResponse(
+        id=db_rule.id,
+        name=db_rule.name,
+        description=db_rule.description,
+        rule_type=db_rule.rule_type,
+        severity=db_rule.severity,
+        base_confidence=db_rule.base_confidence,
+        time_window_seconds=db_rule.time_window_seconds,
+        min_event_count=db_rule.min_event_count,
+        entity_field=db_rule.entity_field,
+        conditions=db_rule.conditions,
+        is_active=db_rule.is_active,
+        priority=db_rule.priority,
+        version=db_rule.version,
+        mitre_technique_id=db_rule.mitre_technique_id,
+        mitre_tactic_id=db_rule.mitre_tactic_id,
+        created_at=db_rule.created_at,
+        updated_at=db_rule.updated_at,
+    )
