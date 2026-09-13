@@ -1,0 +1,106 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-09-14T00:00:00Z",
+  "indicators": [
+    {
+      "ioc_type": "ip",
+      "value": "198.51.100.99",
+      "verdict": "malicious",
+      "severity": "high",
+      "confidence": 0.95,
+      "threat_types": ["c2", "scanner"],
+      "description": "Known aggressive scanner and C2 node",
+      "source_reference": "SOC-LOCAL-001"
+    },
+    {
+      "ioc_type": "ip",
+      "value": "203.0.113.0/24",
+      "verdict": "malicious",
+      "severity": "critical",
+      "confidence": 0.90,
+      "threat_types": ["botnet", "bruteforce"],
+      "description": "Compromised botnet subnet range",
+      "source_reference": "SOC-LOCAL-002"
+    },
+    {
+      "ioc_type": "ip",
+      "value": "10.99.99.99",
+      "verdict": "malicious",
+      "severity": "critical",
+      "confidence": 0.98,
+      "threat_types": ["compromised_host", "internal_pivot"],
+      "description": "Compromised internal pivot host",
+      "source_reference": "SOC-LOCAL-003"
+    },
+    {
+      "ioc_type": "ip",
+      "value": "198.51.100.50",
+      "verdict": "suspicious",
+      "severity": "medium",
+      "confidence": 0.60,
+      "threat_types": ["reconnaissance"],
+      "description": "Suspicious reconnaissance source",
+      "source_reference": "SOC-LOCAL-004"
+    },
+    {
+      "ioc_type": "domain",
+      "value": "malicious-c2-command.org",
+      "verdict": "malicious",
+      "severity": "high",
+      "confidence": 0.95,
+      "threat_types": ["c2"],
+      "description": "Primary C2 domain",
+      "source_reference": "SOC-LOCAL-005"
+    },
+    {
+      "ioc_type": "domain",
+      "value": "*.bad-actor.net",
+      "verdict": "malicious",
+      "severity": "high",
+      "confidence": 0.90,
+      "threat_types": ["phishing", "c2"],
+      "description": "Wildcard adversary domain infrastructure",
+      "source_reference": "SOC-LOCAL-006"
+    },
+    {
+      "ioc_type": "file_hash",
+      "value": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+      "verdict": "malicious",
+      "severity": "critical",
+      "confidence": 1.0,
+      "threat_types": ["malware", "eicar"],
+      "description": "EICAR standard anti-virus test file SHA256",
+      "source_reference": "SOC-LOCAL-007"
+    },
+    {
+      "ioc_type": "file_hash",
+      "value": "44d88612fea8a8f36de82e1278abb02f",
+      "verdict": "malicious",
+      "severity": "critical",
+      "confidence": 1.0,
+      "threat_types": ["malware", "eicar"],
+      "description": "EICAR standard anti-virus test file MD5",
+      "source_reference": "SOC-LOCAL-008"
+    },
+    {
+      "ioc_type": "url",
+      "value": "http://malicious-c2-command.org/drop.exe",
+      "verdict": "malicious",
+      "severity": "critical",
+      "confidence": 0.99,
+      "threat_types": ["dropper", "c2"],
+      "description": "Active malware drop URL",
+      "source_reference": "SOC-LOCAL-009"
+    },
+    {
+      "ioc_type": "email",
+      "value": "phisher@malicious-campaign.org",
+      "verdict": "malicious",
+      "severity": "high",
+      "confidence": 0.95,
+      "threat_types": ["spearphishing"],
+      "description": "Known phishing sender account",
+      "source_reference": "SOC-LOCAL-010"
+    }
+  ]
+}

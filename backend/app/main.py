@@ -65,6 +65,24 @@ from normalizer.schemas import (
 from normalizer.service import NormalizationService
 from normalizer.wazuh_normalizer import EventNormalizer, _map_severity_label
 
+import time
+from .models.audit_log import AuditLog
+from .models.threat_intel_result import CTISource, IOCType, ThreatIntelResult
+from .schemas.threat_intel import (
+    CacheInvalidateRequest,
+    CacheInvalidateResponse,
+    EnrichedObservableSchema,
+    EnrichmentBatchResponse,
+    EnrichmentRequest,
+    EventEnrichmentResponse,
+    IncidentEnrichmentResponse,
+    ProviderStatusListResponse,
+    ThreatIntelResultItem,
+    ThreatIntelResultListResponse,
+)
+from threat_intel.normalizer import normalize_observable
+from threat_intel.service import ThreatIntelService
+
 # ---------------------------------------------------------------------------
 # Bootstrap — configure logging before anything else so that all subsequent
 # imports and startup messages are captured with the correct format.
@@ -86,6 +104,73 @@ def get_correlation_service() -> CorrelationService:
     return _correlation_service
 
 
+# ── Threat Intelligence Service Setup ─────────────────────────────────────────
+_threat_intel_service = ThreatIntelService()
+
+
+def get_threat_intel_service() -> ThreatIntelService:
+    return _threat_intel_service
+
+
+# ── Threat Intelligence Admin Auth Hook & Rate Limiting ───────────────────────
+def get_admin_auth_hook(request: Request) -> bool:
+    """
+    Administrative authorization dependency hook for Phase 4.
+    Protects cache invalidation and forced cache refresh.
+    Defaults to rejecting unauthorized access with HTTP 403 in production.
+    Accepts FastAPI dependency overrides in tests.
+    """
+    # Check FastAPI dependency overrides (for testing)
+    override = app.dependency_overrides.get(get_admin_auth_hook)
+    if override:
+        try:
+            return override(request)
+        except TypeError:
+            return override()
+
+    cfg = get_settings()
+    configured_token = cfg.ti_admin_token
+
+    if not configured_token:
+        log.warning("admin_auth_rejected_unconfigured_token", path=request.url.path)
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Administrative operations are disabled because ti_admin_token is unconfigured",
+        )
+
+    provided_token = request.headers.get("X-SOC-Admin-Token")
+    if not provided_token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            provided_token = auth_header[7:].strip()
+
+    if not provided_token or provided_token != configured_token:
+        log.warning("admin_auth_rejected_invalid_token", path=request.url.path)
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Invalid or missing administrative token",
+        )
+
+    return True
+
+
+_force_refresh_timestamps: dict[str, float] = {}
+
+
+def check_force_refresh_rate_limit(canonical_value: str) -> None:
+    """Enforces max 1 force-refresh per observable per 60 seconds."""
+    now = time.time()
+    last_time = _force_refresh_timestamps.get(canonical_value)
+    if last_time and (now - last_time) < 60.0:
+        retry_after = int(60.0 - (now - last_time))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: Force refresh for '{canonical_value}' is limited to once per 60s. Retry after {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    _force_refresh_timestamps[canonical_value] = now
+
+
 # ---------------------------------------------------------------------------
 # Lifespan context manager (FastAPI 0.93+ pattern).
 # ---------------------------------------------------------------------------
@@ -105,6 +190,7 @@ async def lifespan(app: FastAPI):
     yield
     if isinstance(_window_state_store, RedisWindowStateStore):
         await _window_state_store.close()
+    await _threat_intel_service.close()
     log.info("application_shutdown")
 
 
@@ -755,4 +841,318 @@ async def create_correlation_rule(
         mitre_tactic_id=db_rule.mitre_tactic_id,
         created_at=db_rule.created_at,
         updated_at=db_rule.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Threat Intelligence Enrichment Endpoints
+# ---------------------------------------------------------------------------
+@app.post(
+    "/threat-intel/enrich",
+    response_model=EnrichmentBatchResponse,
+    status_code=200,
+    tags=["Threat Intelligence"],
+)
+async def enrich_observables(
+    body: EnrichmentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> EnrichmentBatchResponse:
+    """
+    Ad-hoc observable enrichment across configured CTI providers.
+    Supports up to 25 observables per request.
+    Bypassing cache (force_refresh=True) requires administrative authorization.
+    """
+    if len(body.observables) > 25:
+        raise HTTPException(
+            status_code=400,
+            detail="Batch limit exceeded: Maximum 25 observables permitted per enrichment request",
+        )
+
+    # Force refresh requires admin auth and rate limit check
+    if body.force_refresh:
+        get_admin_auth_hook(request)
+
+    normalized_observables = []
+    for item in body.observables:
+        raw_val = item.ioc_value.strip()
+        ioc_t = IOCType(item.ioc_type.lower()) if item.ioc_type else None
+        norm = normalize_observable(raw_val, ioc_type=ioc_t)
+        if not norm:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Malformed or invalid observable: '{raw_val}'",
+            )
+        if body.force_refresh:
+            check_force_refresh_rate_limit(norm.canonical_value)
+        normalized_observables.append(norm)
+
+    enriched = await _threat_intel_service.enrich_observables(
+        observables=normalized_observables,
+        requested_providers=body.providers,
+        force_refresh=body.force_refresh,
+        db=db,
+    )
+    await db.commit()
+
+    # Audit log
+    audit = AuditLog(
+        actor="api_client",
+        action="ti_manual_enrichment",
+        resource_type="observable_batch",
+        details={
+            "count": len(normalized_observables),
+            "providers": body.providers,
+            "force_refresh": body.force_refresh,
+        },
+        ip_address=request.client.host if request.client else None,
+    )
+    db.add(audit)
+    await db.commit()
+
+    return EnrichmentBatchResponse(
+        total=len(enriched),
+        results=[EnrichedObservableSchema.from_domain(e) for e in enriched],
+    )
+
+
+@app.post(
+    "/threat-intel/enrich/event/{event_id}",
+    response_model=EventEnrichmentResponse,
+    status_code=200,
+    tags=["Threat Intelligence"],
+)
+async def enrich_event_endpoint(
+    event_id: UUID,
+    request: Request,
+    providers: list[str] | None = Query(default=None),
+    force_refresh: bool = Query(default=False),
+    db: AsyncSession = Depends(get_db),
+) -> EventEnrichmentResponse:
+    """Extracts, canonicalizes, and enriches all observables from a NormalizedEvent."""
+    if force_refresh:
+        get_admin_auth_hook(request)
+
+    try:
+        enriched = await _threat_intel_service.enrich_event(
+            event_id=event_id,
+            db=db,
+            requested_providers=providers,
+            force_refresh=force_refresh,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    await db.commit()
+
+    # Audit log
+    audit = AuditLog(
+        actor="system",
+        action="ti_event_enrichment",
+        resource_type="normalized_event",
+        resource_id=str(event_id),
+        details={"observables_count": len(enriched), "providers": providers},
+        ip_address=request.client.host if request.client else None,
+    )
+    db.add(audit)
+    await db.commit()
+
+    return EventEnrichmentResponse(
+        event_id=event_id,
+        total_observables=len(enriched),
+        results=[EnrichedObservableSchema.from_domain(e) for e in enriched],
+    )
+
+
+@app.post(
+    "/threat-intel/enrich/incident/{incident_id}",
+    response_model=IncidentEnrichmentResponse,
+    status_code=200,
+    tags=["Threat Intelligence"],
+)
+async def enrich_incident_endpoint(
+    incident_id: UUID,
+    request: Request,
+    providers: list[str] | None = Query(default=None),
+    force_refresh: bool = Query(default=False),
+    db: AsyncSession = Depends(get_db),
+) -> IncidentEnrichmentResponse:
+    """Extracts, canonicalizes, and enriches all distinct observables from an Incident and member events."""
+    if force_refresh:
+        get_admin_auth_hook(request)
+
+    try:
+        enriched = await _threat_intel_service.enrich_incident(
+            incident_id=incident_id,
+            db=db,
+            requested_providers=providers,
+            force_refresh=force_refresh,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    await db.commit()
+
+    # Audit log
+    audit = AuditLog(
+        actor="system",
+        action="ti_incident_enrichment",
+        resource_type="incident",
+        resource_id=str(incident_id),
+        details={"observables_count": len(enriched), "providers": providers},
+        ip_address=request.client.host if request.client else None,
+    )
+    db.add(audit)
+    await db.commit()
+
+    return IncidentEnrichmentResponse(
+        incident_id=incident_id,
+        total_observables=len(enriched),
+        results=[EnrichedObservableSchema.from_domain(e) for e in enriched],
+    )
+
+
+@app.get(
+    "/threat-intel/results",
+    response_model=ThreatIntelResultListResponse,
+    status_code=200,
+    tags=["Threat Intelligence"],
+)
+async def get_threat_intel_results(
+    verdict: str | None = Query(default=None),
+    ioc_type: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    ioc_value: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> ThreatIntelResultListResponse:
+    """Queries historical threat intelligence lookup results with filtering and pagination."""
+    query = select(ThreatIntelResult)
+    count_query = select(func.count(ThreatIntelResult.id))
+
+    if verdict:
+        query = query.where(ThreatIntelResult.verdict == verdict.lower())
+        count_query = count_query.where(ThreatIntelResult.verdict == verdict.lower())
+    if ioc_type:
+        try:
+            it = IOCType(ioc_type.lower())
+            query = query.where(ThreatIntelResult.ioc_type == it)
+            count_query = count_query.where(ThreatIntelResult.ioc_type == it)
+        except ValueError:
+            return ThreatIntelResultListResponse(total=0, limit=limit, offset=offset, results=[])
+    if source:
+        try:
+            cs = CTISource(source.lower())
+            query = query.where(ThreatIntelResult.source == cs)
+            count_query = count_query.where(ThreatIntelResult.source == cs)
+        except ValueError:
+            return ThreatIntelResultListResponse(total=0, limit=limit, offset=offset, results=[])
+    if ioc_value:
+        v_low = ioc_value.lower()
+        query = query.where(ThreatIntelResult.ioc_value == v_low)
+        count_query = count_query.where(ThreatIntelResult.ioc_value == v_low)
+
+    total_res = await db.execute(count_query)
+    total = total_res.scalar() or 0
+
+    query = query.order_by(ThreatIntelResult.queried_at.desc()).offset(offset).limit(limit)
+    rows_res = await db.execute(query)
+    rows = rows_res.scalars().all()
+
+    items = [
+        ThreatIntelResultItem(
+            id=r.id,
+            normalized_event_id=r.normalized_event_id,
+            incident_id=r.incident_id,
+            ioc_type=r.ioc_type.value,
+            ioc_value=r.ioc_value,
+            source=r.source.value,
+            matched=r.matched,
+            verdict=r.verdict,
+            severity=r.severity,
+            confidence=r.confidence,
+            provider_confidence=r.provider_confidence,
+            derived_heuristic_confidence=r.derived_heuristic_confidence,
+            threat_type=r.threat_type,
+            context=r.context,
+            raw_response_text=r.raw_response_text,
+            source_reference=r.source_reference,
+            queried_at=r.queried_at,
+            cache_expires_at=r.cache_expires_at,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+    return ThreatIntelResultListResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        results=items,
+    )
+
+
+@app.get(
+    "/threat-intel/providers",
+    response_model=ProviderStatusListResponse,
+    status_code=200,
+    tags=["Threat Intelligence"],
+)
+async def get_threat_intel_providers() -> ProviderStatusListResponse:
+    """Returns operational status, configuration health, and cache metrics for CTI providers."""
+    health = await _threat_intel_service.check_health()
+    return ProviderStatusListResponse(
+        status=health.get("status", "unknown"),
+        cache=health.get("cache", {}),
+        providers=health.get("providers", []),
+    )
+
+
+@app.post(
+    "/threat-intel/cache/invalidate",
+    response_model=CacheInvalidateResponse,
+    status_code=200,
+    tags=["Threat Intelligence"],
+)
+async def invalidate_threat_intel_cache(
+    body: CacheInvalidateRequest,
+    request: Request,
+    admin_auth: bool = Depends(get_admin_auth_hook),
+    db: AsyncSession = Depends(get_db),
+) -> CacheInvalidateResponse:
+    """
+    Purges threat intelligence cache entries.
+    Administrative endpoint protected by explicit authorization dependency hook.
+    """
+    obs = None
+    if body.ioc_value:
+        it = IOCType(body.ioc_type.lower()) if body.ioc_type else None
+        obs = normalize_observable(body.ioc_value, ioc_type=it)
+
+    deleted = await _threat_intel_service.invalidate_cache(
+        provider=body.provider,
+        observable=obs,
+        key_pattern=body.key_pattern,
+    )
+
+    target_desc = body.key_pattern or (
+        f"{body.provider}:{body.ioc_value}" if body.provider and body.ioc_value else (body.provider or "all")
+    )
+
+    # Audit log
+    audit = AuditLog(
+        actor="admin",
+        action="ti_cache_invalidation",
+        resource_type="cti_cache",
+        details={"target": target_desc, "deleted_count": deleted},
+        ip_address=request.client.host if request.client else None,
+    )
+    db.add(audit)
+    await db.commit()
+
+    return CacheInvalidateResponse(
+        deleted_entries=deleted,
+        target=target_desc,
+        invalidated_at=datetime.now(timezone.utc),
     )

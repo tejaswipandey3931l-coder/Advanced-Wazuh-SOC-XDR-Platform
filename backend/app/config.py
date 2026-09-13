@@ -63,6 +63,45 @@ class Settings(BaseSettings):
     opensearch_timeout: float = 15.0
     opensearch_max_retries: int = 3
 
+    # ── Threat Intelligence Settings (Phase 4) ──────────────────────────────
+    ti_cache_ttl_positive: int = 86400   # 24 hours
+    ti_cache_ttl_negative: int = 7200    # 2 hours
+    ti_cache_ttl_error: int = 120        # 2 minutes
+    ti_provider_timeout: float = 5.0     # 5.0 seconds
+    ti_max_concurrent_lookups: int = 10  # Option A bounded concurrency
+    ti_max_batch_size: int = 25          # Maximum observables per ad-hoc request
+    ti_admin_token: str = ""             # Token for admin auth hook
+
+    # Local Feed (V1 Mandatory)
+    ti_local_feed_enabled: bool = True
+    ti_local_feed_path: str = "configs/threat_intel/local_feed.json"
+
+    # AbuseIPDB (V1 Mandatory - Disabled by default)
+    abuseipdb_enabled: bool = False
+    abuseipdb_api_key: str = ""
+    abuseipdb_rate_limit_per_minute: int = 60
+    abuseipdb_daily_quota: int = 1000  # Configured plan-specific daily quota limit (default represents observed free/public tier baseline at development time)
+
+    # VirusTotal (V1 Mandatory - Disabled by default)
+    virustotal_enabled: bool = False
+    virustotal_api_key: str = ""
+    virustotal_rate_limit_per_minute: int = 4
+    virustotal_daily_quota: int = 500  # Configured plan-specific daily quota limit (default represents observed free/public tier baseline at development time)
+
+    # Future Provider Adapters (Configuration hooks only)
+    misp_enabled: bool = False
+    misp_url: str = ""
+    misp_api_key: str = ""
+    misp_verify_ssl: bool = True
+
+    opencti_enabled: bool = False
+    opencti_url: str = ""
+    opencti_token: str = ""
+    opencti_verify_ssl: bool = True
+
+    alienvault_otx_enabled: bool = False
+    alienvault_otx_api_key: str = ""
+
     @field_validator("wazuh_api_url", "opensearch_url", mode="before")
     @classmethod
     def strip_trailing_slash(cls, v: str) -> str:

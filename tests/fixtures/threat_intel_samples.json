@@ -1,0 +1,103 @@
+{
+  "abuseipdb": {
+    "malicious": {
+      "data": {
+        "ipAddress": "198.51.100.99",
+        "isPublic": true,
+        "ipVersion": 4,
+        "isWhitelisted": false,
+        "abuseConfidenceScore": 100,
+        "countryCode": "US",
+        "usageType": "Data Center/Web Hosting/Transit",
+        "isp": "BadHost Inc",
+        "domain": "badhost.example",
+        "totalReports": 85,
+        "numDistinctUsers": 32,
+        "lastReportedAt": "2026-09-14T01:00:00+00:00"
+      }
+    },
+    "suspicious": {
+      "data": {
+        "ipAddress": "198.51.100.50",
+        "isPublic": true,
+        "ipVersion": 4,
+        "isWhitelisted": false,
+        "abuseConfidenceScore": 45,
+        "countryCode": "NL",
+        "usageType": "Commercial",
+        "isp": "ScannerCo",
+        "domain": "scannerco.example",
+        "totalReports": 8,
+        "numDistinctUsers": 4,
+        "lastReportedAt": "2026-09-13T12:00:00+00:00"
+      }
+    },
+    "clean": {
+      "data": {
+        "ipAddress": "8.8.8.8",
+        "isPublic": true,
+        "ipVersion": 4,
+        "isWhitelisted": true,
+        "abuseConfidenceScore": 0,
+        "countryCode": "US",
+        "usageType": "DNS",
+        "isp": "Google LLC",
+        "domain": "google.com",
+        "totalReports": 0,
+        "numDistinctUsers": 0,
+        "lastReportedAt": null
+      }
+    }
+  },
+  "virustotal": {
+    "malicious_file": {
+      "data": {
+        "id": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+        "type": "file",
+        "attributes": {
+          "meaningful_name": "eicar.com",
+          "reputation": -100,
+          "tags": ["eicar", "test-file", "trojan"],
+          "last_analysis_stats": {
+            "malicious": 62,
+            "suspicious": 1,
+            "harmless": 0,
+            "undetected": 8
+          }
+        }
+      }
+    },
+    "suspicious_domain": {
+      "data": {
+        "id": "suspicious-tracker.net",
+        "type": "domain",
+        "attributes": {
+          "reputation": -5,
+          "tags": ["suspicious"],
+          "last_analysis_stats": {
+            "malicious": 2,
+            "suspicious": 3,
+            "harmless": 20,
+            "undetected": 55
+          }
+        }
+      }
+    },
+    "clean_domain": {
+      "data": {
+        "id": "example.com",
+        "type": "domain",
+        "attributes": {
+          "reputation": 100,
+          "tags": [],
+          "last_analysis_stats": {
+            "malicious": 0,
+            "suspicious": 0,
+            "harmless": 85,
+            "undetected": 5
+          }
+        }
+      }
+    }
+  }
+}

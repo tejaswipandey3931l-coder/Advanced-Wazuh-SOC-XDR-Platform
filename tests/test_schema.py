@@ -89,4 +89,6 @@ def test_threat_intel_enum_values() -> None:
         "misp",
         "opencti",
         "local_feed",
+        "virustotal",
+        "alienvault_otx",
     ]

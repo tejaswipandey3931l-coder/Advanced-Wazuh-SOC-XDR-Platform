@@ -136,6 +136,9 @@ class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     events: Mapped[list["NormalizedEvent"]] = relationship(
         "NormalizedEvent", secondary="incident_events", viewonly=True
     )
+    threat_intel_results: Mapped[list["ThreatIntelResult"]] = relationship(
+        "ThreatIntelResult", back_populates="incident", cascade="all, delete-orphan"
+    )
 
     # ── Composite indexes ──────────────────────────────────────────────────────
     __table_args__ = (

@@ -24,6 +24,22 @@ from .wazuh import (
     WazuhManagerStatus,
 )
 
+from .threat_intel import (
+    CacheInvalidateRequest,
+    CacheInvalidateResponse,
+    ConsensusSchema,
+    EnrichedObservableSchema,
+    EnrichmentBatchResponse,
+    EnrichmentRequest,
+    EventEnrichmentResponse,
+    IncidentEnrichmentResponse,
+    ObservableInput,
+    ProviderResultSchema,
+    ProviderStatusListResponse,
+    ThreatIntelResultItem,
+    ThreatIntelResultListResponse,
+)
+
 __all__ = [
     "AlertListResponse",
     "RawAlertItem",
@@ -40,4 +56,17 @@ __all__ = [
     "CorrelationRuleResponse",
     "CorrelationRuleCreateRequest",
     "CorrelationRulesListResponse",
+    "ObservableInput",
+    "EnrichmentRequest",
+    "ProviderResultSchema",
+    "ConsensusSchema",
+    "EnrichedObservableSchema",
+    "EnrichmentBatchResponse",
+    "EventEnrichmentResponse",
+    "IncidentEnrichmentResponse",
+    "ThreatIntelResultItem",
+    "ThreatIntelResultListResponse",
+    "ProviderStatusListResponse",
+    "CacheInvalidateRequest",
+    "CacheInvalidateResponse",
 ]
