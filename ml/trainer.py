@@ -15,6 +15,28 @@ Design constraints
   ml.scorer.calculate_ml_score().
 * risk-v1 values are NEVER used as features.
 
+Calibration API
+---------------
+scikit-learn 1.6+ deprecates CalibratedClassifierCV(cv="prefit") in favour
+of wrapping the already-fitted estimator with FrozenEstimator:
+
+    from sklearn.frozen import FrozenEstimator
+    frozen = FrozenEstimator(fitted_pipeline)
+    calibrated = CalibratedClassifierCV(frozen, method="sigmoid")
+    calibrated.fit(X_val, y_val)
+
+sklearn 1.5.x does not yet ship sklearn.frozen; the equivalent is
+CalibratedClassifierCV(fitted_pipeline, cv="prefit", method="sigmoid").
+
+Both paths guarantee IDENTICAL semantics:
+    - LogisticRegression (and the whole Pipeline) is fitted ONLY on X_train.
+    - The calibration scalers are fitted ONLY on X_val.
+    - X_test is NEVER passed to .fit() at any stage.
+
+_make_calibrated_prefit() detects the installed version at runtime and
+selects the appropriate path automatically, future-proofing the code
+without breaking the current environment.
+
 Artifact output
 ---------------
 After training, the pipeline saves a joblib artifact and writes a
@@ -44,6 +66,71 @@ from .registry import (
     save_registry_entry,
 )
 from .splitter import SplitResult
+
+
+def _sklearn_has_frozen_estimator() -> bool:
+    """
+    Return True if sklearn.frozen.FrozenEstimator is available (sklearn ≥1.6).
+    Returns False on sklearn 1.5.x where the module does not yet exist.
+    """
+    try:
+        from sklearn.frozen import FrozenEstimator  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _make_calibrated_prefit(fitted_estimator: Any, method: str = "sigmoid") -> Any:
+    """
+    Build a CalibratedClassifierCV wrapper around an ALREADY-FITTED estimator
+    using the API that is appropriate for the installed scikit-learn version.
+
+    sklearn ≥1.6 (FrozenEstimator available):
+        frozen = FrozenEstimator(fitted_estimator)
+        calibrated = CalibratedClassifierCV(frozen, method=method)
+        # caller must call calibrated.fit(X_val, y_val) — LR NOT refit
+
+    sklearn 1.5.x (FrozenEstimator not yet available):
+        calibrated = CalibratedClassifierCV(
+            fitted_estimator, cv="prefit", method=method
+        )
+        # caller must call calibrated.fit(X_val, y_val) — LR NOT refit
+
+    Both paths provide IDENTICAL guarantees:
+        1. The base estimator (LogisticRegression + Pipeline) is NEVER
+           refit when calibrated.fit(X_val, y_val) is called.
+        2. Only the sigmoid calibration scalers are fitted on X_val.
+        3. X_test is never passed to .fit() at any stage.
+
+    Parameters
+    ----------
+    fitted_estimator:
+        An already-fitted sklearn Pipeline (or estimator) that exposes
+        predict_proba() and classes_.
+    method:
+        Calibration method: "sigmoid" (Platt) or "isotonic".
+
+    Returns
+    -------
+    An unfitted CalibratedClassifierCV ready for .fit(X_val, y_val).
+    """
+    from sklearn.calibration import CalibratedClassifierCV  # noqa: PLC0415
+
+    if _sklearn_has_frozen_estimator():
+        from sklearn.frozen import FrozenEstimator  # noqa: PLC0415
+        # sklearn ≥1.6: wrap with FrozenEstimator to prevent any accidental
+        # refitting of the base estimator.
+        frozen = FrozenEstimator(fitted_estimator)
+        return CalibratedClassifierCV(frozen, method=method)
+    else:
+        # sklearn 1.5.x: cv="prefit" provides the same guarantee —
+        # it uses the estimator as-is and does NOT call estimator.fit()
+        # during CalibratedClassifierCV.fit().
+        return CalibratedClassifierCV(
+            fitted_estimator,
+            cv="prefit",
+            method=method,
+        )
 
 
 def _build_X_y(
@@ -80,7 +167,13 @@ def train_and_calibrate(
     Train a scikit-learn classifier on the training split and calibrate it
     using the validation split.
 
-    The test split is NEVER touched during this function.
+    Data isolation guarantees
+    -------------------------
+    1. X_train / y_train  → LogisticRegression (+ Pipeline) is fit HERE ONLY.
+    2. X_val / y_val      → Calibration scalers are fit HERE ONLY.
+    3. X_test / y_test    → NEVER passed to .fit() inside this function.
+
+    The test split in ``split`` is accessed ZERO times during this function.
 
     Parameters
     ----------
@@ -99,6 +192,7 @@ def train_and_calibrate(
         - ``train_accuracy``: float
         - ``val_accuracy``: float
         - ``classes``: list[str]   # PRIORITY_CLASS_ORDER
+        - ``calibration_api``: str  # which path was taken
 
     Raises
     ------
@@ -109,7 +203,7 @@ def train_and_calibrate(
     """
     try:
         import joblib
-        from sklearn.calibration import CalibratedClassifierCV
+        import sklearn
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import accuracy_score
         from sklearn.preprocessing import StandardScaler
@@ -131,12 +225,13 @@ def train_and_calibrate(
 
     X_train, y_train = _build_X_y(split.train)
     X_val, y_val = _build_X_y(split.val)
+    # NOTE: split.test is intentionally NOT unpacked here.
+    #       Test data is never accessed during training or calibration.
 
     # ── Base estimator ────────────────────────────────────────────────────────
     # LogisticRegression: interpretable, fast, suitable for research baseline.
     # max_iter=2000 to ensure convergence on small datasets.
     base_clf = LogisticRegression(
-        multi_class="multinomial",
         solver="lbfgs",
         max_iter=2000,
         C=1.0,
@@ -150,19 +245,26 @@ def train_and_calibrate(
         ("clf", base_clf),
     ])
 
-    # ── Train on training split ───────────────────────────────────────────────
+    # ── Step 1: Fit base pipeline on training split ONLY ─────────────────────
     pipeline.fit(X_train, y_train)
 
-    # ── Calibrate on validation split ONLY ───────────────────────────────────
-    # CalibratedClassifierCV(cv="prefit") uses an already-fitted estimator.
-    calibrated = CalibratedClassifierCV(
-        estimator=pipeline,
-        method="sigmoid",   # Platt scaling
-        cv="prefit",
-    )
+    # ── Step 2: Calibrate on validation split ONLY ───────────────────────────
+    # _make_calibrated_prefit() selects the version-appropriate API:
+    #   sklearn ≥1.6 → FrozenEstimator (base pipeline frozen, not refit)
+    #   sklearn 1.5.x → cv="prefit"   (same guarantee, different API)
+    calibrated = _make_calibrated_prefit(pipeline, method="sigmoid")
+    # This call fits ONLY the sigmoid calibration scalers on X_val.
+    # It does NOT refit the LogisticRegression or StandardScaler.
     calibrated.fit(X_val, y_val)
 
-    # ── Accuracy on train / val ───────────────────────────────────────────────
+    # Record which API path was taken for auditability.
+    calibration_api = (
+        "FrozenEstimator + CalibratedClassifierCV(method='sigmoid')"
+        if _sklearn_has_frozen_estimator()
+        else "CalibratedClassifierCV(cv='prefit', method='sigmoid')"
+    )
+
+    # ── Accuracy on train / val (test set is NOT used here) ──────────────────
     train_preds = calibrated.predict(X_train)
     val_preds = calibrated.predict(X_val)
     train_acc = float(accuracy_score(y_train, train_preds))
@@ -176,7 +278,6 @@ def train_and_calibrate(
 
     # ── Build registry entry ──────────────────────────────────────────────────
     sha256 = compute_file_sha256(artifact_path)
-    import sklearn
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
     registry_entry = ModelRegistryEntry(
         model_version=MODEL_VERSION,
@@ -191,7 +292,10 @@ def train_and_calibrate(
         },
         trained_at_utc=datetime.now(timezone.utc).isoformat(),
         artifact_path=str(artifact_path),
-        notes="Logistic Regression + Platt scaling (validation only)",
+        notes=(
+            f"LogisticRegression + Platt scaling (validation only). "
+            f"Calibration API: {calibration_api}."
+        ),
     )
     registry_path = output_dir / "ml_model_registry.json"
     save_registry_entry(registry_entry, registry_path)
@@ -203,6 +307,7 @@ def train_and_calibrate(
         "train_accuracy": train_acc,
         "val_accuracy": val_acc,
         "classes": PRIORITY_CLASS_ORDER,
+        "calibration_api": calibration_api,
     }
 
 
