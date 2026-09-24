@@ -43,6 +43,7 @@ AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
     expire_on_commit=False,
     class_=AsyncSession,
 )
+async_session_factory = AsyncSessionLocal
 
 
 # ---------------------------------------------------------------------------

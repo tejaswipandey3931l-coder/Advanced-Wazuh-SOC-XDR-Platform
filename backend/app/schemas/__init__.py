@@ -39,6 +39,13 @@ from .threat_intel import (
     ThreatIntelResultItem,
     ThreatIntelResultListResponse,
 )
+from .risk import (
+    RiskHistoryResponse,
+    RiskRecalculateRequest,
+    RiskScoreResponse,
+    RiskSimulateRequest,
+    RiskSimulateResponse,
+)
 
 __all__ = [
     "AlertListResponse",
@@ -69,4 +76,9 @@ __all__ = [
     "ProviderStatusListResponse",
     "CacheInvalidateRequest",
     "CacheInvalidateResponse",
+    "RiskScoreResponse",
+    "RiskHistoryResponse",
+    "RiskRecalculateRequest",
+    "RiskSimulateRequest",
+    "RiskSimulateResponse",
 ]

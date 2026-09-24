@@ -246,7 +246,7 @@ class ThreatIntelService:
         if not observables:
             return []
 
-        return await self.enrich_observables(
+        results = await self.enrich_observables(
             observables=observables,
             requested_providers=requested_providers,
             force_refresh=force_refresh,
@@ -254,6 +254,22 @@ class ThreatIntelService:
             event_id=None,
             incident_id=incident.id,
         )
+
+        if results:
+            incident.evidence_version = (incident.evidence_version or 1) + 1
+            await db.flush()
+            try:
+                import asyncio
+                from risk_engine.service import RiskService
+                asyncio.create_task(
+                    RiskService.evaluate_incident_background(
+                        incident.id, trigger_reason="cti_enriched"
+                    )
+                )
+            except Exception:
+                pass
+
+        return results
 
     async def _persist_results(
         self,

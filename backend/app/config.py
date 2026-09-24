@@ -102,6 +102,18 @@ class Settings(BaseSettings):
     alienvault_otx_enabled: bool = False
     alienvault_otx_api_key: str = ""
 
+    # ── Risk Engine Settings (Phase 5) ────────────────────────────────────────
+    risk_enabled: bool = True
+    risk_half_life_hours: float = 24.0
+    risk_min_decay: float = 0.25
+    risk_weight_severity: float = 0.30
+    risk_weight_correlation: float = 0.25
+    risk_weight_cti: float = 0.20
+    risk_weight_volume: float = 0.10
+    risk_weight_mitre: float = 0.15
+    risk_clean_mitigation: float = 15.0
+    risk_volume_ceiling: float = 90.0
+
     @field_validator("wazuh_api_url", "opensearch_url", mode="before")
     @classmethod
     def strip_trailing_slash(cls, v: str) -> str:

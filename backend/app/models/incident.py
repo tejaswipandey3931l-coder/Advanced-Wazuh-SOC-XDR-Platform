@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     DateTime,
     Enum,
     Float,
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from .attack_chain import AttackChain
     from .correlation_rule import CorrelationRule
     from .incident_event import IncidentEvent
+    from .incident_risk_score import IncidentRiskScore
     from .normalized_event import NormalizedEvent
 
 
@@ -86,8 +88,27 @@ class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
 
+    # ── Evidence Snapshot Tracking (Phase 5) ──────────────────────────────────
+    evidence_version: Mapped[int] = mapped_column(BigInteger, default=1, nullable=False)
+
     # ── Scoring (populated by risk engine and ML prioritiser) ─────────────────
     risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_priority_band: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    current_risk_score_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("incident_risk_scores.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    risk_evidence_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    risk_evidence_as_of: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    risk_evaluation_as_of: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    risk_calculated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     ml_priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # ── Timeline ──────────────────────────────────────────────────────────────
@@ -139,11 +160,22 @@ class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     threat_intel_results: Mapped[list["ThreatIntelResult"]] = relationship(
         "ThreatIntelResult", back_populates="incident", cascade="all, delete-orphan"
     )
+    risk_scores: Mapped[list["IncidentRiskScore"]] = relationship(
+        "IncidentRiskScore",
+        back_populates="incident",
+        foreign_keys="[IncidentRiskScore.incident_id]",
+    )
+    current_risk_score: Mapped["IncidentRiskScore | None"] = relationship(
+        "IncidentRiskScore",
+        foreign_keys=[current_risk_score_id],
+        post_update=True,
+    )
 
     # ── Composite indexes ──────────────────────────────────────────────────────
     __table_args__ = (
         Index("ix_incidents_status_severity", "status", "severity"),
         Index("ix_incidents_first_seen", "first_seen"),
+        Index("ix_incidents_risk_priority", "risk_score", "risk_priority_band"),
         Index(
             "uq_active_incident_dedup_key",
             "dedup_key",

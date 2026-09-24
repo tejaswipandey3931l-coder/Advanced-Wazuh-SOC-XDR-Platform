@@ -235,6 +235,7 @@ class CorrelationService:
             existing_tact = set(incident.mitre_tactics or [])
             existing_tact.update(match.mitre_tactics)
             incident.mitre_tactics = sorted(existing_tact)
+            incident.evidence_version = (incident.evidence_version or 1) + 1
 
         # 4. Link member events into incident_events idempotently
         for event_id in match.matched_event_ids:
@@ -267,4 +268,17 @@ class CorrelationService:
 
         await db.flush()
         await db.refresh(incident)
+
+        # Dispatch non-blocking background risk calculation with failure isolation
+        try:
+            import asyncio
+            from risk_engine.service import RiskService
+            asyncio.create_task(
+                RiskService.evaluate_incident_background(
+                    incident.id, trigger_reason="event_correlated"
+                )
+            )
+        except Exception:
+            pass
+
         return incident

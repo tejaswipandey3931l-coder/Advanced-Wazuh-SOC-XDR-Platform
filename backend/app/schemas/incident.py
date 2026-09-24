@@ -47,6 +47,14 @@ class IncidentResponse(BaseModel):
     entity_context: dict[str, Any] | None = None
     mitre_techniques: list[str] | None = None
     mitre_tactics: list[str] | None = None
+    evidence_version: int = 1
+    risk_score: float | None = None
+    risk_priority_band: str | None = None
+    current_risk_score_id: UUID | None = None
+    risk_evidence_version: int | None = None
+    risk_evidence_as_of: datetime | None = None
+    risk_evaluation_as_of: datetime | None = None
+    risk_calculated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

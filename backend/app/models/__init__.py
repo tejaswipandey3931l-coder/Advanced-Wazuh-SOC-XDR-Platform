@@ -11,6 +11,7 @@ from .base import Base
 from .correlation_rule import CorrelationRule
 from .incident import Incident
 from .incident_event import IncidentEvent
+from .incident_risk_score import IncidentRiskScore
 from .normalized_event import NormalizedEvent
 from .raw_alert import RawAlert
 from .threat_intel_result import ThreatIntelResult
@@ -21,6 +22,7 @@ __all__ = [
     "NormalizedEvent",
     "Incident",
     "IncidentEvent",
+    "IncidentRiskScore",
     "CorrelationRule",
     "ThreatIntelResult",
     "AttackChain",

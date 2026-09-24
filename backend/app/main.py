@@ -80,6 +80,13 @@ from .schemas.threat_intel import (
     ThreatIntelResultItem,
     ThreatIntelResultListResponse,
 )
+from .schemas.risk import (
+    RiskHistoryResponse,
+    RiskRecalculateRequest,
+    RiskScoreResponse,
+    RiskSimulateRequest,
+    RiskSimulateResponse,
+)
 from threat_intel.normalizer import normalize_observable
 from threat_intel.service import ThreatIntelService
 
@@ -110,6 +117,19 @@ _threat_intel_service = ThreatIntelService()
 
 def get_threat_intel_service() -> ThreatIntelService:
     return _threat_intel_service
+
+
+# ── Dynamic Risk Engine Setup ────────────────────────────────────────────────
+from risk_engine.service import RiskService
+from risk_engine.calculator import calculate_risk_v1
+from risk_engine.explainer import build_explanation
+from risk_engine.models import FactorInputs
+
+_risk_service = RiskService()
+
+
+def get_risk_service() -> RiskService:
+    return _risk_service
 
 
 # ── Threat Intelligence Admin Auth Hook & Rate Limiting ───────────────────────
@@ -564,6 +584,14 @@ def _serialize_incident(inc: Incident) -> IncidentResponse:
         entity_context=inc.entity_context,
         mitre_techniques=inc.mitre_techniques,
         mitre_tactics=inc.mitre_tactics,
+        evidence_version=inc.evidence_version,
+        risk_score=inc.risk_score,
+        risk_priority_band=inc.risk_priority_band,
+        current_risk_score_id=inc.current_risk_score_id,
+        risk_evidence_version=inc.risk_evidence_version,
+        risk_evidence_as_of=inc.risk_evidence_as_of,
+        risk_evaluation_as_of=inc.risk_evaluation_as_of,
+        risk_calculated_at=inc.risk_calculated_at,
         created_at=inc.created_at,
         updated_at=inc.updated_at,
     )
@@ -1155,4 +1183,148 @@ async def invalidate_threat_intel_cache(
         deleted_entries=deleted,
         target=target_desc,
         invalidated_at=datetime.now(timezone.utc),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Dynamic Risk Scoring & Prioritization Routes
+# ---------------------------------------------------------------------------
+
+
+@app.post(
+    "/incidents/{incident_id}/risk/recalculate",
+    response_model=RiskScoreResponse,
+    status_code=200,
+    tags=["Dynamic Risk Engine"],
+    summary="Recalculate dynamic risk score for an incident",
+)
+async def recalculate_incident_risk(
+    incident_id: UUID,
+    body: RiskRecalculateRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> RiskScoreResponse:
+    """Manually recalculates dynamic risk score for an incident."""
+    eval_as_of = body.evaluation_as_of if body else None
+    result = await _risk_service.evaluate_incident(
+        db=db,
+        incident_id=incident_id,
+        evaluation_as_of=eval_as_of,
+        trigger_reason="manual_recalculate",
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+
+    return RiskScoreResponse.from_domain(
+        result=result,
+        incident_id=incident_id,
+        score_id=result.risk_score_id,
+        trigger_reason="manual_recalculate",
+    )
+
+
+@app.get(
+    "/incidents/{incident_id}/risk",
+    response_model=RiskScoreResponse,
+    status_code=200,
+    tags=["Dynamic Risk Engine"],
+    summary="Get latest dynamic risk score for an incident",
+)
+async def get_incident_risk(
+    incident_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> RiskScoreResponse:
+    """Retrieves current dynamic risk score for an incident."""
+    stmt = select(Incident.id).where(Incident.id == incident_id)
+    inc_exists = (await db.execute(stmt)).scalar_one_or_none()
+    if not inc_exists:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+
+    result = await _risk_service.get_latest_risk(db=db, incident_id=incident_id)
+    if not result:
+        result = await _risk_service.evaluate_incident(
+            db=db,
+            incident_id=incident_id,
+            trigger_reason="on_demand",
+        )
+    if not result:
+        raise HTTPException(status_code=404, detail=f"No risk score available for incident {incident_id}")
+
+    return RiskScoreResponse.from_domain(
+        result=result,
+        incident_id=incident_id,
+        score_id=result.risk_score_id,
+        trigger_reason="query",
+    )
+
+
+@app.get(
+    "/incidents/{incident_id}/risk/history",
+    response_model=RiskHistoryResponse,
+    status_code=200,
+    tags=["Dynamic Risk Engine"],
+    summary="Get append-only risk score history for an incident",
+)
+async def get_incident_risk_history(
+    incident_id: UUID,
+    limit: int = Query(default=50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> RiskHistoryResponse:
+    """Retrieves chronological append-only risk evaluation history for an incident."""
+    stmt = select(Incident.id).where(Incident.id == incident_id)
+    inc_exists = (await db.execute(stmt)).scalar_one_or_none()
+    if not inc_exists:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+
+    results = await _risk_service.get_risk_history(db=db, incident_id=incident_id, limit=limit)
+    items = [
+        RiskScoreResponse.from_domain(
+            result=r,
+            incident_id=incident_id,
+            score_id=r.risk_score_id,
+            trigger_reason="history",
+        )
+        for r in results
+    ]
+    return RiskHistoryResponse(
+        incident_id=incident_id,
+        items=items,
+        total=len(items),
+    )
+
+
+@app.post(
+    "/risk/evaluate",
+    response_model=RiskSimulateResponse,
+    status_code=200,
+    tags=["Dynamic Risk Engine"],
+    summary="Stateless risk-v1 evaluation simulation",
+)
+async def simulate_risk_evaluation(
+    body: RiskSimulateRequest,
+) -> RiskSimulateResponse:
+    """Stateless risk calculation simulation for dry-run analysis and sensitivity exploration."""
+    calc_result = calculate_risk_v1(body.factors)
+    calc_time = datetime.now(timezone.utc)
+    explanation = build_explanation(calc_result, calculated_at=calc_time)
+
+    return RiskSimulateResponse(
+        overall_score=calc_result["overall_score"],
+        priority_band=calc_result["priority_band"].value,
+        base_score=calc_result["base_score"],
+        temporal_decay=calc_result["temporal_decay"],
+        sub_scores={
+            "severity": calc_result["sub_scores"].severity,
+            "correlation": calc_result["sub_scores"].correlation,
+            "cti": calc_result["sub_scores"].cti,
+            "volume": calc_result["sub_scores"].volume,
+            "mitre_coverage": calc_result["sub_scores"].mitre_coverage,
+        },
+        effective_weights=calc_result["effective_weights"],
+        factors=calc_result["factors"],
+        explanation=explanation.model_dump(mode="json"),
+        clean_mitigation=calc_result["clean_mitigation"],
+        evidence_version=body.factors.evidence_version,
+        evidence_as_of=body.factors.evidence_as_of,
+        evaluation_as_of=body.factors.evaluation_as_of,
+        calculated_at=calc_time,
     )
