@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
-from app.main import app
-from app.database import get_db
+from backend.app.main import app
+from backend.app.database import get_db
 
 class MockResult:
     def scalars(self): return self
@@ -14,7 +14,11 @@ class MockDB:
 async def mock_get_db():
     yield MockDB()
 
-app.dependency_overrides[get_db] = mock_get_db
+@pytest.fixture(autouse=True)
+def override_get_db():
+    app.dependency_overrides[get_db] = mock_get_db
+    yield
+    app.dependency_overrides.pop(get_db, None)
 
 client = TestClient(app)
 

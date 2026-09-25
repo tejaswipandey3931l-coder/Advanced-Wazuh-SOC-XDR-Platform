@@ -6,18 +6,18 @@ from sqlalchemy.future import select
 from sqlalchemy import or_, desc, func
 from sqlalchemy.orm import selectinload
 
-from app.models.incident import Incident
-from app.models.normalized_event import NormalizedEvent
-from app.models.incident_event import IncidentEvent
-from app.models.threat_intel_result import ThreatIntelResult
-from app.models.correlation_rule import CorrelationRule
-from app.models.attack_chain import AttackChain
+from ..models.incident import Incident
+from ..models.normalized_event import NormalizedEvent
+from ..models.incident_event import IncidentEvent
+from ..models.threat_intel_result import ThreatIntelResult
+from ..models.correlation_rule import CorrelationRule
+from ..models.attack_chain import AttackChain
 
-from app.attack_chain.constants import ALGORITHM_VERSION
-from app.attack_chain.mitre import MitreCatalog
-from app.attack_chain.algorithm import AttackChainBuilder
-from app.attack_chain.identity import compute_cti_fingerprint, compute_chain_canonical_id
-from app.attack_chain.models import AttackChainVersion, AttackChainNode, AttackChainEdge
+from .constants import ALGORITHM_VERSION
+from .mitre import MitreCatalog
+from .algorithm import AttackChainBuilder
+from .identity import compute_cti_fingerprint, compute_chain_canonical_id
+from .models import AttackChainVersion, AttackChainNode, AttackChainEdge
 
 class ReconstructionService:
     def __init__(self, db: AsyncSession, mitre_catalog: MitreCatalog):

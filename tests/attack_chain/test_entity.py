@@ -1,7 +1,7 @@
 import pytest
-from app.attack_chain.entity import extract_entities_from_event, EntityInfo
-from app.attack_chain.constants import NodeType
-from app.models.normalized_event import NormalizedEvent
+from backend.app.attack_chain.entity import extract_entities_from_event, EntityInfo
+from backend.app.attack_chain.constants import NodeType
+from backend.app.models.normalized_event import NormalizedEvent
 
 def test_extract_ip():
     event = NormalizedEvent(src_ip="192.168.1.1", dst_ip="10.0.0.1")

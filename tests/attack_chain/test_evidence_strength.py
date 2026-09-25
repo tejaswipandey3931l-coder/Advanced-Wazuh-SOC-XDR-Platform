@@ -1,6 +1,6 @@
 import pytest
-from app.attack_chain.constants import Provenance, EdgeType
-from app.attack_chain.evidence_strength import calculate_node_evidence_strength, calculate_edge_evidence_strength
+from backend.app.attack_chain.constants import Provenance, EdgeType
+from backend.app.attack_chain.evidence_strength import calculate_node_evidence_strength, calculate_edge_evidence_strength
 
 def test_node_strength():
     # OBSERVED CTI_MATCH, n=1 (0.8 discount), base=1.0, sq=0.9 -> 0.72

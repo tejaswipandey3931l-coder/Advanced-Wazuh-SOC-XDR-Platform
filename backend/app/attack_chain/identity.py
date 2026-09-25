@@ -1,7 +1,7 @@
 import hashlib
 import uuid
 from typing import List, Iterable
-from app.models.threat_intel_result import ThreatIntelResult
+from ..models.threat_intel_result import ThreatIntelResult
 
 def sha256_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()

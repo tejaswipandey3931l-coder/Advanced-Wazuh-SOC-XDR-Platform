@@ -2,8 +2,8 @@ import pytest
 from datetime import datetime, timezone
 import hashlib
 
-from app.attack_chain.identity import compute_cti_fingerprint
-from app.models.threat_intel_result import ThreatIntelResult
+from backend.app.attack_chain.identity import compute_cti_fingerprint
+from backend.app.models.threat_intel_result import ThreatIntelResult
 
 def mock_cti(id_val, queried_at_iso, ioc, matched=True):
     cti = ThreatIntelResult(

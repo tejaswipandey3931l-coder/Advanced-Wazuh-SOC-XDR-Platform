@@ -3,9 +3,9 @@ from uuid import uuid4
 from datetime import datetime, timezone
 from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
-from app.models.incident import Incident
-from app.attack_chain.models import AttackChainVersion, AttackChainNode
-from app.database import AsyncSessionLocal
+from backend.app.models.incident import Incident
+from backend.app.attack_chain.models import AttackChainVersion, AttackChainNode
+from backend.app.database import AsyncSessionLocal
 
 @pytest.mark.asyncio
 async def test_historical_retention_and_restrict():

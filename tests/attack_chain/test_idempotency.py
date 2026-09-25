@@ -1,5 +1,5 @@
 import pytest
-from app.attack_chain.identity import compute_chain_canonical_id
+from backend.app.attack_chain.identity import compute_chain_canonical_id
 
 def test_chain_idempotency():
     args = {

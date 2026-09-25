@@ -1,10 +1,10 @@
 import pytest
 import uuid
 from datetime import datetime, timezone
-from app.attack_chain.algorithm import AttackChainBuilder
-from app.attack_chain.constants import LIMITS
-from app.attack_chain.mitre import MitreCatalog
-from app.models.normalized_event import NormalizedEvent
+from backend.app.attack_chain.algorithm import AttackChainBuilder
+from backend.app.attack_chain.constants import LIMITS
+from backend.app.attack_chain.mitre import MitreCatalog
+from backend.app.models.normalized_event import NormalizedEvent
 
 @pytest.fixture
 def catalog():

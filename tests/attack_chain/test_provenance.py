@@ -1,5 +1,5 @@
 import pytest
-from app.attack_chain.constants import Provenance, EdgeType
+from backend.app.attack_chain.constants import Provenance, EdgeType
 
 def test_provenance_verification():
     # Explicitly verify that terminology does not imply inferred edges prove causality.

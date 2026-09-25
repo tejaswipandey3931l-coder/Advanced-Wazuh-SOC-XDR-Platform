@@ -1,11 +1,11 @@
 import uuid
 import pytest
 from datetime import datetime, timezone
-from app.attack_chain.algorithm import AttackChainBuilder
-from app.attack_chain.mitre import MitreCatalog
-from app.models.normalized_event import NormalizedEvent
-from app.models.incident_event import IncidentEvent
-from app.models.threat_intel_result import ThreatIntelResult
+from backend.app.attack_chain.algorithm import AttackChainBuilder
+from backend.app.attack_chain.mitre import MitreCatalog
+from backend.app.models.normalized_event import NormalizedEvent
+from backend.app.models.incident_event import IncidentEvent
+from backend.app.models.threat_intel_result import ThreatIntelResult
 
 def test_builder_steps():
     mitre = MitreCatalog()

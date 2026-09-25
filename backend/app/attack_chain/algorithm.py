@@ -5,20 +5,20 @@ from datetime import datetime
 from typing import Dict, List, Set, Tuple, Any, Optional
 from collections import defaultdict
 
-from app.attack_chain.constants import (
+from .constants import (
     Provenance, EdgeType, NodeType, ALGORITHM_VERSION, LIMITS
 )
-from app.attack_chain.entity import extract_entities_from_event, EntityInfo
-from app.attack_chain.ip_utils import canonical_ip
-from app.attack_chain.mitre import MitreCatalog
-from app.attack_chain.evidence_strength import calculate_node_evidence_strength, calculate_edge_evidence_strength
+from .entity import extract_entities_from_event, EntityInfo
+from .ip_utils import canonical_ip
+from .mitre import MitreCatalog
+from .evidence_strength import calculate_node_evidence_strength, calculate_edge_evidence_strength
 
-from app.models.incident import Incident
-from app.models.normalized_event import NormalizedEvent
-from app.models.incident_event import IncidentEvent
-from app.models.threat_intel_result import ThreatIntelResult
-from app.models.correlation_rule import CorrelationRule
-from app.attack_chain.models import AttackChainVersion, AttackChainNode, AttackChainEdge
+from ..models.incident import Incident
+from ..models.normalized_event import NormalizedEvent
+from ..models.incident_event import IncidentEvent
+from ..models.threat_intel_result import ThreatIntelResult
+from ..models.correlation_rule import CorrelationRule
+from .models import AttackChainVersion, AttackChainNode, AttackChainEdge
 
 def sha256_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
