@@ -28,7 +28,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -59,7 +59,18 @@ class AttackChain(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     highest_tactic: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # Overall confidence of the reconstruction (0.0 – 1.0).
+    # Legacy compatibility mirror only: ordinal deterministic summary evidence-strength score [0.0, 1.0]; not a probability.
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # ── Phase 7 Additive ──────────────────────────────────────────────────────
+    chain_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("attack_chain_versions.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    evidence_version: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
 
     # Natural-language summary of the chain produced by the recommender.
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)

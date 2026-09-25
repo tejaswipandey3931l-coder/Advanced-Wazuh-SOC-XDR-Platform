@@ -1,0 +1,43 @@
+{
+  "version": "13.1",
+  "techniques": {
+    "T1059": {
+      "name": "Command and Scripting Interpreter",
+      "tactics": ["TA0002"]
+    },
+    "T1059.001": {
+      "name": "PowerShell",
+      "tactics": ["TA0002"]
+    },
+    "T1078": {
+      "name": "Valid Accounts",
+      "tactics": ["TA0001", "TA0003", "TA0004", "TA0005"]
+    },
+    "T1046": {
+      "name": "Network Service Discovery",
+      "tactics": ["TA0007"]
+    },
+    "T1021": {
+      "name": "Remote Services",
+      "tactics": ["TA0008"]
+    },
+    "T1486": {
+      "name": "Data Encrypted for Impact",
+      "tactics": ["TA0040"]
+    }
+  },
+  "tactics": {
+    "TA0001": "Initial Access",
+    "TA0002": "Execution",
+    "TA0003": "Persistence",
+    "TA0004": "Privilege Escalation",
+    "TA0005": "Defense Evasion",
+    "TA0006": "Credential Access",
+    "TA0007": "Discovery",
+    "TA0008": "Lateral Movement",
+    "TA0009": "Collection",
+    "TA0011": "Command and Control",
+    "TA0010": "Exfiltration",
+    "TA0040": "Impact"
+  }
+}

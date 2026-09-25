@@ -15,6 +15,7 @@ from .incident_risk_score import IncidentRiskScore
 from .normalized_event import NormalizedEvent
 from .raw_alert import RawAlert
 from .threat_intel_result import ThreatIntelResult
+from ..attack_chain.models import AttackChainVersion, AttackChainNode, AttackChainEdge
 
 __all__ = [
     "Base",
@@ -27,4 +28,7 @@ __all__ = [
     "ThreatIntelResult",
     "AttackChain",
     "AuditLog",
+    "AttackChainVersion",
+    "AttackChainNode",
+    "AttackChainEdge",
 ]

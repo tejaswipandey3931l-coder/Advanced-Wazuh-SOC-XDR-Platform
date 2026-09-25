@@ -1328,3 +1328,71 @@ async def simulate_risk_evaluation(
         evaluation_as_of=body.factors.evaluation_as_of,
         calculated_at=calc_time,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — Attack Chain Reconstruction Routes
+# ---------------------------------------------------------------------------
+
+from .attack_chain.service import ReconstructionService
+from .attack_chain.mitre import MitreCatalog
+from .attack_chain.models import AttackChainVersion, AttackChainNode, AttackChainEdge
+
+_mitre_catalog = MitreCatalog()
+try:
+    _mitre_catalog.load("data/attck_catalog.json")
+except Exception as e:
+    log.warning("mitre_catalog_load_failed", error=str(e))
+
+def get_reconstruction_service(db: AsyncSession = Depends(get_db)):
+    return ReconstructionService(db, _mitre_catalog)
+
+@app.post(
+    "/api/v2/incidents/{incident_id}/attack-chain/reconstruct",
+    tags=["Attack Chain"],
+    summary="Trigger attack chain reconstruction"
+)
+async def trigger_reconstruction(
+    incident_id: UUID,
+    evidence_version: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+    service: ReconstructionService = Depends(get_reconstruction_service)
+):
+    version = await service.reconstruct(incident_id, evidence_version)
+    if not version:
+        raise HTTPException(status_code=400, detail="Reconstruction failed, stale evidence, or no data")
+    return {"status": "success", "chain_version": version.chain_version}
+
+@app.get(
+    "/api/v2/incidents/{incident_id}/attack-chain/versions",
+    tags=["Attack Chain"],
+    summary="List attack chain versions for an incident"
+)
+async def list_chain_versions(incident_id: UUID, db: AsyncSession = Depends(get_db)):
+    stmt = select(AttackChainVersion).where(AttackChainVersion.incident_id == incident_id).order_by(AttackChainVersion.chain_version.desc())
+    res = await db.execute(stmt)
+
+    versions = res.scalars().all()
+    return [{"id": v.id, "chain_version": v.chain_version, "evidence_version": v.evidence_version, "truncated": v.truncated} for v in versions]
+
+@app.get(
+    "/api/v2/incidents/{incident_id}/attack-chain/versions/{version_id}/nodes",
+    tags=["Attack Chain"],
+    summary="Get nodes for a specific attack chain version"
+)
+async def get_chain_nodes(incident_id: UUID, version_id: UUID, db: AsyncSession = Depends(get_db)):
+    stmt = select(AttackChainNode).where(AttackChainNode.chain_version_id == version_id)
+    res = await db.execute(stmt)
+    nodes = res.scalars().all()
+    return [{"logical_node_id": n.logical_node_id, "node_type": n.node_type} for n in nodes]
+
+@app.get(
+    "/api/v2/incidents/{incident_id}/attack-chain/versions/{version_id}/edges",
+    tags=["Attack Chain"],
+    summary="Get edges for a specific attack chain version"
+)
+async def get_chain_edges(incident_id: UUID, version_id: UUID, db: AsyncSession = Depends(get_db)):
+    stmt = select(AttackChainEdge).where(AttackChainEdge.chain_version_id == version_id)
+    res = await db.execute(stmt)
+    edges = res.scalars().all()
+    return [{"logical_edge_id": e.logical_edge_id, "edge_type": e.edge_type, "src": e.src_node_logical_id, "dst": e.dst_node_logical_id} for e in edges]
